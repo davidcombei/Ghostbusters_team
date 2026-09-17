@@ -12,7 +12,7 @@ import copy
 '''
 
 def randRange(x1, x2, integer):
-    y = np.random.uniform(low=x1, high=x2, size=(1,))
+    y = np.random.uniform(low=x1, high=x2, size=(1,)).item()
     if integer:
         y = int(y)
     return y
@@ -31,7 +31,7 @@ def genNotchCoeffs(nBands,minF,maxF,minBW,maxBW,minCoeff,maxCoeff,minG,maxG,fs):
         fc = randRange(minF,maxF,0);
         bw = randRange(minBW,maxBW,0);
         c = randRange(minCoeff,maxCoeff,1);
-          
+
         if c/2 == int(c/2):
             c = c + 1
         f1 = fc - bw/2
@@ -42,9 +42,9 @@ def genNotchCoeffs(nBands,minF,maxF,minBW,maxBW,minCoeff,maxCoeff,minG,maxG,fs):
             f2 =  fs/2-1/1000
         b = np.convolve(signal.firwin(c, [float(f1), float(f2)], window='hamming', fs=fs),b)
 
-    G = randRange(minG,maxG,0); 
-    _, h = signal.freqz(b, 1, fs=fs)    
-    b = pow(10, G/20)*b/np.amax(abs(h))   
+    G = randRange(minG,maxG,0);
+    _, h = signal.freqz(b, 1, fs=fs)
+    b = pow(10, G/20)*b/np.amax(abs(h))
     return b
 
 
@@ -63,7 +63,7 @@ def LnL_convolutive_noise(x,N_f,nBands,minF,maxF,minBW,maxBW,minCoeff,maxCoeff,m
             minG = minG-minBiasLinNonLin;
             maxG = maxG-maxBiasLinNonLin;
         b = genNotchCoeffs(nBands,minF,maxF,minBW,maxBW,minCoeff,maxCoeff,minG,maxG,fs)
-        y = y + filterFIR(np.power(x, (i+1)),  b)     
+        y = y + filterFIR(np.power(x, (i+1)),  b)
     y = y - np.mean(y)
     y = normWav(y,0)
     return y
@@ -72,7 +72,7 @@ def LnL_convolutive_noise(x,N_f,nBands,minF,maxF,minBW,maxBW,minCoeff,maxCoeff,m
 # Impulsive signal dependent noise
 def ISD_additive_noise(x, P, g_sd):
     beta = randRange(0, P, 0)
-    
+
     y = copy.deepcopy(x)
     x_len = x.shape[0]
     n = int(x_len*(beta/100))
