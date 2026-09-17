@@ -97,6 +97,9 @@ def main():
                         help="layers per GPU, e.g. --layer_split 25 23. Default is an even "
                              "split; shift layers off the last card if it runs tighter (it "
                              "also holds the stacked hidden states and the SLS head).")
+    parser.add_argument("--freeze_ssl", action="store_true", default=False,
+                        help="freeze the SSL front-end so only the SLS + classifier head train. "
+                             "Default is end-to-end training of the whole model.")
     parser.add_argument("--model_path", type=str, default=None,
                         help="resume from a checkpoint of this exact model")
     parser.add_argument("--out_path", type=str, default="./exp")
@@ -128,7 +131,7 @@ def main():
     parser.add_argument("--SNRmin", type=int, default=10)
     parser.add_argument("--SNRmax", type=int, default=40)
     # --- RTC augmentation ---
-    parser.add_argument("--use_rtc_aug", action="store_true", default=True)
+    parser.add_argument("--use_rtc_aug", action="store_true", default=False)
     parser.add_argument("--aug_noise_dirs", nargs="*", default=[])
     parser.add_argument("--aug_music_dirs", nargs="*", default=[])
     parser.add_argument("--aug_rir_dirs", nargs="*", default=[])
@@ -179,9 +182,11 @@ def main():
     print(f"Layers: {model.ssl_model.n_layers}")
     print(f"Train trials: {len(train_files)}")
     print(f"Dev trials: {len(dev_files)}")
+    trainable = [p for p in model.parameters() if p.requires_grad]
     print(f"Parameters: {sum(p.numel() for p in model.parameters())}")
+    print(f"Trainable parameters: {sum(p.numel() for p in trainable)} (freeze_ssl={args.freeze_ssl})")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(trainable, lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([0.1, 0.9]).to(out_device))
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 

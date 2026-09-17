@@ -6,8 +6,8 @@ import torch.nn.functional as F
 from transformers import (
     AutoConfig,
     AutoFeatureExtractor,
-    #Wav2Vec2BertConfig,
-    #Wav2Vec2BertModel,
+    Wav2Vec2BertConfig,
+    Wav2Vec2BertModel,
     Wav2Vec2Config,
     Wav2Vec2Model,
 )
@@ -39,7 +39,7 @@ class SSLModel(nn.Module):
             cfg = Wav2Vec2BertConfig.from_pretrained(name)
             cfg.layerdrop = 0.0
             cfg.apply_spec_augment = False
-            
+
 
             if n_layers is None:
                 n_layers = cfg.num_hidden_layers
@@ -48,7 +48,7 @@ class SSLModel(nn.Module):
                 self.model = Wav2Vec2BertModel.from_pretrained(name, config=cfg, dtype=torch.float32)
             except TypeError:
                 self.model = Wav2Vec2BertModel.from_pretrained(name, config=cfg, torch_dtype=torch.float32)
-                
+
             self.model_dim = cfg.hidden_size
         else:
             cfg = Wav2Vec2Config.from_pretrained(name)
@@ -64,7 +64,7 @@ class SSLModel(nn.Module):
                 self.model = Wav2Vec2Model.from_pretrained(name, config=cfg, dtype=torch.float32)
             except TypeError:
                 self.model = Wav2Vec2Model.from_pretrained(name, config=cfg, torch_dtype=torch.float32)
-                
+
             self.model_dim = 1920 if "xls-r-2b" in name else cfg.hidden_size
 
         max_layers = cfg.num_hidden_layers
@@ -142,13 +142,13 @@ class SSLModel(nn.Module):
 
     def forward(self, x):
         x = x.to(self.device)
-        
+
         if self.is_w2v_bert:
             outputs = self.model(input_features=x, output_hidden_states=True)
         else:
             x = (x - x.mean(dim=1, keepdim=True)) / (x.std(dim=1, keepdim=True) + 1e-7)
             outputs = self.model(x, output_hidden_states=True)
-            
+
         hs = outputs.hidden_states[1:]
         hs = [h.to(self.output_device) for h in hs]
         return torch.stack(hs, dim=1)
@@ -185,17 +185,28 @@ class ModelSLS(nn.Module):
             devices=devices,
             layer_split=layer_split
         )
+        self.freeze_ssl = getattr(args, "freeze_ssl", False)
+        if self.freeze_ssl:
+            self.ssl_model.requires_grad_(False)
+            self.ssl_model.eval()
+
         self.sls = SLS(self.ssl_model.out_dim)
 
         self.first_bn = nn.BatchNorm2d(num_features=1)
         self.selu = nn.SELU(inplace=True)
-        
-        n_frames = self.ssl_model.n_frames(64600)             
-        self.fc1 = nn.Linear((n_frames // 3) * (self.ssl_model.out_dim // 3), 1024)  
+
+        n_frames = self.ssl_model.n_frames(64600)
+        self.fc1 = nn.Linear((n_frames // 3) * (self.ssl_model.out_dim // 3), 1024)
         self.fc2 = nn.Linear(1024, 2)
 
         for m in (self.sls, self.first_bn, self.fc1, self.fc2):
             m.to(self.ssl_model.output_device)
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.freeze_ssl:
+            self.ssl_model.eval()
+        return self
 
     @property
     def input_device(self):
@@ -209,11 +220,15 @@ class ModelSLS(nn.Module):
 
         if x.dim() == 3 and not self.ssl_model.is_w2v_bert:
             x = x.squeeze(-1)
-            
-        H = self.ssl_model(x)                   # (bs, layers, frames, out_dim)
+
+        if self.freeze_ssl:
+            with torch.no_grad():
+                H = self.ssl_model(x)           # (bs, layers, frames, out_dim)
+        else:
+            H = self.ssl_model(x)
         x = self.sls(H)                         # (bs, frames, out_dim)
 
-        x = x.unsqueeze(dim=1)                  
+        x = x.unsqueeze(dim=1)
         x = self.first_bn(x)
         x = self.selu(x)
         x = F.max_pool2d(x, (3, 3))
