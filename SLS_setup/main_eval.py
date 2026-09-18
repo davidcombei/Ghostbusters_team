@@ -5,8 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model.model import Model
-from model.sls_model import ModelSLS
+from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import SpoofAudioDataset, read_protocol, set_random_seed
 
 
@@ -37,10 +36,12 @@ def main():
                         help="aasist = XLS-R 300M + AASIST (model/model.py); "
                              "sls = XLS-R 2B + SLS (model/sls_model.py)")
     parser.add_argument("--n_layers", type=int, default=48,
-                        help="[sls] XLS-R transformer layers, must match the checkpoint")
+                        help="[sls] SSL transformer layers, must match the checkpoint "
+                             "(clamped to the backbone's depth)")
     parser.add_argument("--ssl_name", type=str, default="facebook/wav2vec2-xls-r-2b",
-                        help="[sls] hub id or local dir of the XLS-R checkpoint (the hub id "
-                             "resolves to <repo>/pretrained/wav2vec2-xls-r-2b when present)")
+                        help="[sls] hub id or local dir of the SSL front-end, must match the checkpoint: "
+                             "facebook/wav2vec2-xls-r-2b, facebook/w2v-bert-2.0, Qwen/Qwen3-ASR-0.6B or "
+                             "Qwen/Qwen3-ASR-1.7B (audio encoder only; needs transformers>=5.14)")
     parser.add_argument("--devices", type=int, nargs="+", default=None,
                         help="[sls] GPU ids to split the encoder over, e.g. --devices 4 5 6 7. "
                              "Inference of the 48-layer model also fits on one 32 GB card; "
@@ -53,6 +54,7 @@ def main():
     parser.add_argument("--cudnn-deterministic-toggle", action="store_false", default=True)
     parser.add_argument("--cudnn-benchmark-toggle", action="store_true", default=False)
     args = parser.parse_args()
+    args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
 
     set_random_seed(args.seed, args)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -65,6 +67,7 @@ def main():
         model = ModelSLS(args, device)          # places itself (one GPU or --devices split)
         device = model.input_device
     else:
+        from model.model import Model           # only needed for --arch aasist
         model = Model(args, device).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location="cpu"))
     write_scores(loader, model, device, args.score_path)

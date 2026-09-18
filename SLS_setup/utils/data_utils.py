@@ -128,8 +128,9 @@ class SpoofAudioDataset(Dataset):
         self.pair_base_dir = Path(pair_base_dir) if pair_base_dir else self.base_dir
 
         self.is_w2v_bert = ssl_name is not None and "w2v-bert" in ssl_name.lower()
+        self.is_qwen3_asr = ssl_name is not None and "qwen3-asr" in ssl_name.lower()
         self.feature_extractor = None
-        if self.is_w2v_bert:
+        if self.is_w2v_bert or self.is_qwen3_asr:
             self.feature_extractor = AutoFeatureExtractor.from_pretrained(ssl_name)
 
     def __len__(self):
@@ -153,6 +154,12 @@ class SpoofAudioDataset(Dataset):
         audio = pad_audio(audio, self.cut, random_start=self.train)
         if self.is_w2v_bert:
             inputs = self.feature_extractor(audio, sampling_rate=16000, return_tensors="pt")
+            return inputs.input_features[0]
+        if self.is_qwen3_asr:
+            # (n_mel, frames) log-mel without the default 30 s padding; the model pads the frame
+            # axis to whole encoder chunks itself
+            inputs = self.feature_extractor(audio, sampling_rate=16000, padding="longest", n_window=0,
+                                            return_tensors="pt")
             return inputs.input_features[0]
         return torch.tensor(audio, dtype=torch.float32)
 
