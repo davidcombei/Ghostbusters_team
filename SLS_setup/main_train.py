@@ -107,6 +107,10 @@ def main():
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-6)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
+    parser.add_argument("--ce_weights", type=float, nargs=2, default=[0.1, 0.9],
+                        help="CrossEntropyLoss class weights in label order "
+                             "(class 0 = spoof, class 1 = bonafide); inverse frequency "
+                             "is about 0.19 0.81")
     parser.add_argument("--earlystop_epoch", type=int, default=30)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1234)
@@ -187,7 +191,8 @@ def main():
     print(f"Trainable parameters: {sum(p.numel() for p in trainable)} (freeze_ssl={args.freeze_ssl})")
 
     optimizer = torch.optim.Adam(trainable, lr=args.lr, weight_decay=args.weight_decay)
-    criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([0.1, 0.9]).to(out_device))
+    criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.ce_weights).to(out_device))
+    print(f"CE weights: spoof={args.ce_weights[0]} bonafide={args.ce_weights[1]}")
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 
     best_dev_loss = float("inf")
