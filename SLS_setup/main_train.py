@@ -111,6 +111,18 @@ def main():
                         help="CrossEntropyLoss class weights in label order "
                              "(class 0 = spoof, class 1 = bonafide); inverse frequency "
                              "is about 0.19 0.81")
+    parser.add_argument("--lr_scheduler", type=str, default="none",
+                        choices=["none", "cosine", "plateau"],
+                        help="optional LR schedule; 'none' keeps the constant LR (default). "
+                             "cosine = CosineAnnealingLR over --num_epochs; "
+                             "plateau = ReduceLROnPlateau on dev loss")
+    parser.add_argument("--lr_factor", type=float, default=0.5,
+                        help="[plateau] LR multiplier on each reduction")
+    parser.add_argument("--lr_patience", type=int, default=8,
+                        help="[plateau] stale dev-loss epochs before the LR is reduced; "
+                             "keep well below --earlystop_epoch or it never fires")
+    parser.add_argument("--lr_min", type=float, default=0.0,
+                        help="LR floor: eta_min for cosine, min_lr for plateau")
     parser.add_argument("--earlystop_epoch", type=int, default=30)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1234)
@@ -193,6 +205,17 @@ def main():
     optimizer = torch.optim.Adam(trainable, lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.ce_weights).to(out_device))
     print(f"CE weights: spoof={args.ce_weights[0]} bonafide={args.ce_weights[1]}")
+
+    scheduler = None
+    if args.lr_scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.num_epochs, eta_min=args.lr_min)
+    elif args.lr_scheduler == "plateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=args.lr_factor,
+            patience=args.lr_patience, min_lr=args.lr_min)
+    print(f"LR: {args.lr} schedule={args.lr_scheduler}")
+
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 
     best_dev_loss = float("inf")
@@ -205,10 +228,13 @@ def main():
                                             criterion, out_device)
         dev_loss, dev_acc = evaluate_dev(dev_loader, model, in_device, criterion, out_device)
 
+        # read before stepping the scheduler: this is the LR the epoch trained with
+        current_lr = optimizer.param_groups[0]["lr"]
         message = (
             f"Epoch {epoch}/{args.num_epochs} "
             f"TrainLoss={train_loss:.6f} TrainAcc={train_acc:.2f}% "
-            f"DevLoss={dev_loss:.6f} DevAcc={dev_acc:.2f}%"
+            f"DevLoss={dev_loss:.6f} DevAcc={dev_acc:.2f}% "
+            f"LR={current_lr:.3e}"
         )
         print(message)
         with open(log_path, "a", encoding="utf-8") as f:
@@ -219,6 +245,7 @@ def main():
             writer.add_scalar("Acc/train", train_acc, epoch)
             writer.add_scalar("Loss/dev", dev_loss, epoch)
             writer.add_scalar("Acc/dev", dev_acc, epoch)
+            writer.add_scalar("LR", current_lr, epoch)
 
         epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
         torch.save(model.state_dict(), epoch_path)
@@ -236,6 +263,12 @@ def main():
                   f"(epoch {epoch}, dev_loss={dev_loss:.6f})")
         else:
             no_improve_count += 1
+
+        if scheduler is not None:
+            if args.lr_scheduler == "plateau":
+                scheduler.step(dev_loss)
+            else:
+                scheduler.step()
 
         if no_improve_count >= args.earlystop_epoch:
             print(f"Early stopping at epoch {epoch}. Best dev_loss={best_dev_loss:.6f}")
