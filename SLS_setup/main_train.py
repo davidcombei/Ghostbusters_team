@@ -196,7 +196,8 @@ def main():
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 
     best_dev_loss = float("inf")
-    best_model_path = None
+    best_model_path = os.path.join(ckpt_dir, "best_model.pth")
+    best_epoch = None
     no_improve_count = 0
 
     for epoch in range(1, args.num_epochs + 1):
@@ -219,15 +220,22 @@ def main():
             writer.add_scalar("Loss/dev", dev_loss, epoch)
             writer.add_scalar("Acc/dev", dev_acc, epoch)
 
+        epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
+        torch.save(model.state_dict(), epoch_path)
+
         if dev_loss < best_dev_loss:
             best_dev_loss = dev_loss
+            best_epoch = epoch
             no_improve_count = 0
-            torch.save(model.state_dict(), os.path.join(ckpt_dir, "best_model.pth"))
-            print(f"Saved best model: {best_model_path}")
+            # best_model.pth is a relative symlink to the epoch file, so the whole
+            # ckpt dir stays movable and the best weights cost no extra disk.
+            if os.path.lexists(best_model_path):
+                os.unlink(best_model_path)
+            os.symlink(os.path.basename(epoch_path), best_model_path)
+            print(f"Saved best model: {best_model_path} -> {os.path.basename(epoch_path)} "
+                  f"(epoch {epoch}, dev_loss={dev_loss:.6f})")
         else:
             no_improve_count += 1
-            model_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
-            torch.save(model.state_dict(), model_path)
 
         if no_improve_count >= args.earlystop_epoch:
             print(f"Early stopping at epoch {epoch}. Best dev_loss={best_dev_loss:.6f}")
@@ -236,7 +244,7 @@ def main():
     if writer:
         writer.close()
     print(f"Experiment saved to: {exp_root}")
-    print(f"Best model: {best_model_path}")
+    print(f"Best model: {best_model_path} (epoch {best_epoch}, dev_loss={best_dev_loss:.6f})")
 
 
 if __name__ == "__main__":
