@@ -18,12 +18,25 @@ HUB_NAME = "facebook/w2v-bert-2.0"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
+def ssl_kind(name):
+    name = name.lower()
+    if "w2v-bert" in name:
+        return "w2v_bert"
+    if "qwen3-asr" in name:
+        return "qwen3_asr"
+    return "wav2vec2"
+
+
 def ssl_path(name=HUB_NAME):
+    # the original Qwen3-ASR repos ship no transformers modeling code; their converted "-hf"
+    # twins load with the native Qwen3-ASR classes (transformers >= 5.14)
+    if ssl_kind(name) == "qwen3_asr" and not os.path.isdir(name) and not name.lower().endswith("-hf"):
+        return name + "-hf"
     return name
 
 
 ############################
-## FRONT-END: XLS-R or W2V-BERT 2.0
+## FRONT-END: XLS-R, W2V-BERT 2.0 or the Qwen3-ASR audio encoder
 ############################
 
 
@@ -33,7 +46,8 @@ class SSLModel(nn.Module):
                  devices=None, layer_split=None, out_dim=None):
         super().__init__()
         name = ssl_path(name)
-        self.is_w2v_bert = ("w2v-bert" in name.lower())
+        self.kind = ssl_kind(name)
+        self.is_w2v_bert = self.kind == "w2v_bert"
 
         if self.is_w2v_bert:
             cfg = Wav2Vec2BertConfig.from_pretrained(name)
@@ -50,6 +64,20 @@ class SSLModel(nn.Module):
                 self.model = Wav2Vec2BertModel.from_pretrained(name, config=cfg, torch_dtype=torch.float32)
 
             self.model_dim = cfg.hidden_size
+        elif self.kind == "qwen3_asr":
+            try:
+                from transformers import Qwen3ASRModel
+            except ImportError as e:
+                raise ImportError(f"{name} needs transformers>=5.14 (native Qwen3-ASR support)") from e
+
+            # only the audio encoder is kept; the LLM decoder and the audio->text projector are dropped
+            self.model = Qwen3ASRModel.from_pretrained(name, dtype=torch.float32).audio_tower
+            cfg = self.model.config
+
+            if n_layers is None:
+                n_layers = cfg.num_hidden_layers
+
+            self.model_dim = cfg.d_model
         else:
             cfg = Wav2Vec2Config.from_pretrained(name)
             cfg.layerdrop = 0.0
@@ -71,7 +99,7 @@ class SSLModel(nn.Module):
         if n_layers > max_layers:
             print(f"[SSLModel] {name} has only {max_layers} layers; n_layers={n_layers} clamped to {max_layers}")
             n_layers = max_layers
-        self.model.encoder.layers = self.model.encoder.layers[:n_layers]
+        self.encoder.layers = self.encoder.layers[:n_layers]
         self.model.config.num_hidden_layers = n_layers
 
         self.name = name
@@ -86,9 +114,15 @@ class SSLModel(nn.Module):
         else:
             self.split(devices, layer_split)
 
+    @property
+    def encoder(self):
+        # module holding the transformer `layers` (the Qwen3-ASR audio tower has no `.encoder` level);
+        # a property rather than an attribute so it doesn't show up twice in the state_dict
+        return self.model if self.kind == "qwen3_asr" else self.model.encoder
+
     def split(self, devices, layer_split=None):
         devices = [torch.device(f"cuda:{d}") for d in devices]
-        layers = self.model.encoder.layers
+        layers = self.encoder.layers
         if layer_split is None:
             base, rem = divmod(len(layers), len(devices))
             layer_split = [base + (1 if i >= len(devices) - rem else 0) for i in range(len(devices))]
@@ -96,11 +130,12 @@ class SSLModel(nn.Module):
             f"layer_split {layer_split} must have {len(devices)} entries summing to {len(layers)}"
 
         # everything that is not a transformer layer (CNN/feature projection, pos_conv_embed,
-        # masked_spec_embed, W2V-BERT adapter/intermediate_ffn, ...) starts on the first card;
-        # the layers and the final encoder norm are then moved to their own cards below
+        # masked_spec_embed, W2V-BERT adapter/intermediate_ffn, Qwen3-ASR conv2d stack, ...) starts
+        # on the first card; the layers and the final encoder norm are then moved to their own cards below
         self.model.to(devices[0])
-        if getattr(self.model.encoder, "layer_norm", None) is not None:
-            self.model.encoder.layer_norm.to(devices[-1])
+        final_norm = getattr(self.encoder, "ln_post" if self.kind == "qwen3_asr" else "layer_norm", None)
+        if final_norm is not None:
+            final_norm.to(devices[-1])
 
         start = 0
         for dev, n in zip(devices, layer_split):
@@ -127,8 +162,14 @@ class SSLModel(nn.Module):
         return self.devices[-1] if self.devices else self.device
 
     def n_frames(self, n_samples):
-        if not self.is_w2v_bert:
+        if self.kind == "wav2vec2":
             return int(self.model._get_feat_extract_output_lengths(torch.tensor(n_samples)))
+        if self.kind == "qwen3_asr":
+            # Qwen3ASRFeatureExtractor: 10 ms hop, centered STFT with the last frame dropped; the encoder
+            # then downsamples every (2 * n_window)-frame chunk on its own (3 convs, stride 2)
+            chunk = 2 * self.model.config.n_window
+            n_full, rem = divmod(n_samples // 160, chunk)
+            return int(self.model._post_cnn_length(torch.tensor([chunk] * n_full + [rem])).sum())
         # SeamlessM4TFeatureExtractor: 25 ms window / 10 ms hop, no centering, then frames are
         # padded to a multiple of stride=2 and stacked in pairs -> 160-dim features
         n_mel = 1 + (n_samples - 400) // 160
@@ -144,14 +185,27 @@ class SSLModel(nn.Module):
         x = x.to(self.device)
 
         if self.is_w2v_bert:
-            outputs = self.model(input_features=x, output_hidden_states=True)
+            hs = self.model(input_features=x, output_hidden_states=True).hidden_states
+        elif self.kind == "qwen3_asr":
+            hs = self._qwen3_asr_hidden_states(x)
         else:
             x = (x - x.mean(dim=1, keepdim=True)) / (x.std(dim=1, keepdim=True) + 1e-7)
-            outputs = self.model(x, output_hidden_states=True)
+            hs = self.model(x, output_hidden_states=True).hidden_states
 
-        hs = outputs.hidden_states[1:]
-        hs = [h.to(self.output_device) for h in hs]
+        hs = [h.to(self.output_device) for h in hs[1:]]
         return torch.stack(hs, dim=1)
+
+    def _qwen3_asr_hidden_states(self, x):
+        # x: (bs, n_mel, frames) log-mel. The encoder wants the frame axis padded to whole
+        # (2 * n_window)-frame chunks, plus a mask marking the real frames
+        bs, _, n = x.shape
+        pad = -n % (2 * self.model.config.n_window)
+        mask = torch.zeros(bs, n + pad, dtype=torch.long, device=x.device)
+        mask[:, :n] = 1
+        hs = self.model(input_features=F.pad(x, (0, pad)), input_features_mask=mask,
+                        output_hidden_states=True).hidden_states
+        # packed as (bs * tokens, dim), clip after clip; all clips have the same length here
+        return [h.view(bs, -1, h.shape[-1]) for h in hs]
 
 
 
@@ -218,7 +272,7 @@ class ModelSLS(nn.Module):
 
     def forward(self, x):
 
-        if x.dim() == 3 and not self.ssl_model.is_w2v_bert:
+        if x.dim() == 3 and self.ssl_model.kind == "wav2vec2":
             x = x.squeeze(-1)
 
         if self.freeze_ssl:

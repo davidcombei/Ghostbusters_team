@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 #from model.model import Model
-from model.sls_model import ModelSLS
+from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import build_dataset_from_protocol, set_random_seed
 
 try:
@@ -91,8 +91,12 @@ def main():
                              "Needed to fit all 48 layers; overrides --device. "
                              "Do NOT combine with CUDA_VISIBLE_DEVICES.")
     parser.add_argument("--n_layers", type=int, default=48,
-                        help="number of XLS-R transformer layers to keep (max 48)")
-    parser.add_argument("--ssl_name", type=str, default="facebook/wav2vec2-xls-r-2b")
+                        help="number of SSL transformer layers to keep, clamped to the backbone's depth "
+                             "(48 for XLS-R 2B, 24 for W2V-BERT 2.0, 18 for Qwen3-ASR-0.6B)")
+    parser.add_argument("--ssl_name", type=str, default="facebook/wav2vec2-xls-r-2b",
+                        help="hub id or local dir of the SSL front-end, e.g. facebook/wav2vec2-xls-r-2b, "
+                             "facebook/w2v-bert-2.0, Qwen/Qwen3-ASR-0.6B or Qwen/Qwen3-ASR-1.7B "
+                             "(audio encoder only; needs transformers>=5.14)")
     parser.add_argument("--layer_split", type=int, nargs="+", default=None,
                         help="layers per GPU, e.g. --layer_split 25 23. Default is an even "
                              "split; shift layers off the last card if it runs tighter (it "
@@ -140,6 +144,7 @@ def main():
     parser.add_argument("--aug_use_deepfilternet", action="store_true")
     parser.add_argument("--use_rawboost", action="store_true", default=True)
     args = parser.parse_args()
+    args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
 
     set_random_seed(args.seed, args)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
