@@ -8,6 +8,34 @@ from tqdm import tqdm
 from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import SpoofAudioDataset, read_protocol, set_random_seed
 
+# Checkpoints averaged when --model_merging is set (all must share the same architecture/args).
+MERGE_CHECKPOINTS = [
+    # "exp/run1/epoch_10.pth",
+    # "exp/run1/epoch_11.pth",
+    # "exp/run1/epoch_12.pth",
+]
+
+
+def merge_checkpoints(paths):
+    """Plain element-wise mean of the state_dicts in `paths`."""
+    if not paths:
+        raise ValueError("--model_merging set but MERGE_CHECKPOINTS in main_eval.py is empty")
+    merged, dtypes = {}, {}
+    for i, path in enumerate(paths):
+        print(f"Merging [{i + 1}/{len(paths)}]: {path}")
+        state = torch.load(path, map_location="cpu")
+        if i == 0:
+            for k, v in state.items():
+                dtypes[k] = v.dtype
+                merged[k] = v.to(torch.float64).clone()
+        else:
+            if state.keys() != merged.keys():
+                raise ValueError(f"{path} has different keys than {paths[0]}")
+            for k, v in state.items():
+                merged[k] += v.to(torch.float64)
+        del state
+    return {k: (v / len(paths)).to(dtypes[k]) for k, v in merged.items()}
+
 
 def write_scores(data_loader, model, device, output_score_path):
     model.eval()
@@ -27,7 +55,10 @@ def write_scores(data_loader, model, device, output_score_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate XLSR-AASIST and write fake scores")
-    parser.add_argument("--model_path", type=str, required=True)
+    model_src = parser.add_mutually_exclusive_group(required=True)
+    model_src.add_argument("--model_path", type=str)
+    model_src.add_argument("--model_merging", action="store_true",
+                           help="average the weights of the checkpoints listed in MERGE_CHECKPOINTS")
     parser.add_argument("--eval_data_path", type=str, required=True)
     parser.add_argument("--protocol_path", type=str, required=True)
     parser.add_argument("--score_path", type=str, required=True)
@@ -69,7 +100,11 @@ def main():
     else:
         from model.model import Model           # only needed for --arch aasist
         model = Model(args, device).to(device)
-    model.load_state_dict(torch.load(args.model_path, map_location="cpu"))
+    if args.model_merging:
+        state_dict = merge_checkpoints(MERGE_CHECKPOINTS)
+    else:
+        state_dict = torch.load(args.model_path, map_location="cpu")
+    model.load_state_dict(state_dict)
     write_scores(loader, model, device, args.score_path)
     print(f"Scores saved to: {args.score_path}")
 
