@@ -150,15 +150,40 @@ def main():
     parser.add_argument("--g_sd", type=int, default=2)
     parser.add_argument("--SNRmin", type=int, default=10)
     parser.add_argument("--SNRmax", type=int, default=40)
-    # --- RTC augmentation ---
-    parser.add_argument("--use_rtc_aug", action="store_true", default=False)
-    parser.add_argument("--aug_noise_dirs", nargs="*", default=[])
-    parser.add_argument("--aug_music_dirs", nargs="*", default=[])
-    parser.add_argument("--aug_rir_dirs", nargs="*", default=[])
-    parser.add_argument("--aug_p_apply", type=float, default=0.8)
-    parser.add_argument("--aug_max_stages", type=int, default=3)
-    parser.add_argument("--aug_use_deepfilternet", action="store_true")
-    parser.add_argument("--use_rawboost", action="store_true", default=True)
+    # --- RTC augmentation (utils/rtc_augment.py; pools from
+    #     scripts/prepare_rtc_aug_data.py) ---
+    parser.add_argument("--use_rtc_aug", action="store_true", default=False,
+                        help="augment the training clips with the noisy eval conditions: "
+                             "office/coffee (RNNoise), echo (CLAD), rain/footsteps/keyboard "
+                             "(ESC-50) and reverb (measured RIRs). One stage per clip at most.")
+    parser.add_argument("--aug_noise_dirs", nargs="*", default=["data/augm/noise"],
+                        help="noise pools; each subdirectory is one scenario, tagged by its "
+                             "directory name (office, coffee, rain, footsteps, keyboard)")
+    parser.add_argument("--aug_music_dirs", nargs="*", default=[],
+                        help="optional background-music pool (scenario tag 'music')")
+    parser.add_argument("--aug_rir_dirs", nargs="*", default=["data/augm/measured_rirs"],
+                        help="RIR pool for the reverb scenario (.f32 at 48 kHz, or wav)")
+    parser.add_argument("--aug_p_apply", type=float, default=0.8,
+                        help="probability that a training clip gets its one augmentation")
+    parser.add_argument("--aug_max_stages", type=int, default=1,
+                        help="kept for compatibility; clamped to 1 (one augmentation per clip)")
+    parser.add_argument("--aug_use_deepfilternet", action="store_true",
+                        help="add a DeepFilterNet suppression stage (needs deepfilternet)")
+    parser.add_argument("--no_codec_aug", action="store_true", default=False,
+                        help="with --use_rtc_aug, skip the RTC codec (QQ/Zoom/WeChat/DingTalk/"
+                             "Lark/VooV/Telegram) that otherwise follows the stage in series")
+    parser.add_argument("--aug_codec_p", type=float, default=1.0,
+                        help="probability that a training clip then goes through one RTC codec")
+    parser.add_argument("--musan", action="store_true", default=False,
+                        help="add a MUSAN stage drawing from --musan_dir, scanned recursively. "
+                             "Everything found there is mixed in as additive noise with no "
+                             "filtering, so keep only the non-speech part in that tree. "
+                             "Works with or without --use_rtc_aug and shares the same "
+                             "one-augmentation-per-clip draw.")
+    parser.add_argument("--musan_dir", type=str, default="data/augm/musan",
+                        help="root of the (non-speech) MUSAN tree used by --musan")
+    parser.add_argument("--use_rawboost", action="store_true", default=False)
+    
     args = parser.parse_args()
     args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
 
@@ -201,6 +226,11 @@ def main():
     print(f"Device: in={in_device} out={out_device}")
     print(f"SSL checkpoint: {model.ssl_model.name}")
     print(f"Layers: {model.ssl_model.n_layers}")
+    if train_set.augmenter is not None:
+        print(f"RTC augmentation: {train_set.augmenter.describe()}")
+    else:
+        print("RTC augmentation: off")
+    print(f"RawBoost: {'algo ' + str(args.algo) if args.use_rawboost else 'off'}")
     print(f"Train trials: {len(train_files)}")
     print(f"Dev trials: {len(dev_files)}")
     trainable = [p for p in model.parameters() if p.requires_grad]
@@ -224,7 +254,7 @@ def main():
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 
     best_dev_loss = float("inf")
-    best_model_path = os.path.join(ckpt_dir, "best_model.pth")
+    #best_model_path = os.path.join(ckpt_dir, "best_model.pth")
     best_epoch = None
     no_improve_count = 0
 
@@ -252,8 +282,7 @@ def main():
             writer.add_scalar("Acc/dev", dev_acc, epoch)
             writer.add_scalar("LR", current_lr, epoch)
 
-        epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
-        torch.save(model.state_dict(), epoch_path)
+        
 
         if dev_loss < best_dev_loss:
             best_dev_loss = dev_loss
@@ -261,13 +290,18 @@ def main():
             no_improve_count = 0
             # best_model.pth is a relative symlink to the epoch file, so the whole
             # ckpt dir stays movable and the best weights cost no extra disk.
-            if os.path.lexists(best_model_path):
-                os.unlink(best_model_path)
-            os.symlink(os.path.basename(epoch_path), best_model_path)
-            print(f"Saved best model: {best_model_path} -> {os.path.basename(epoch_path)} "
-                  f"(epoch {epoch}, dev_loss={dev_loss:.6f})")
+            #if os.path.lexists(best_model_path):
+                #os.unlink(best_model_path)
+           # os.symlink(os.path.basename(epoch_path), best_model_path)
+            #print(f"Saved best model: {best_model_path} -> {os.path.basename(epoch_path)} "
+                  #f"(epoch {epoch}, dev_loss={dev_loss:.6f})")
+            epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
+            torch.save(model.state_dict(), epoch_path)
         else:
             no_improve_count += 1
+            epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
+            torch.save(model.state_dict(), epoch_path)
+
 
         if scheduler is not None:
             if args.lr_scheduler == "plateau":
@@ -282,7 +316,7 @@ def main():
     if writer:
         writer.close()
     print(f"Experiment saved to: {exp_root}")
-    print(f"Best model: {best_model_path} (epoch {best_epoch}, dev_loss={best_dev_loss:.6f})")
+    #print(f"Best model: {best_model_path} (epoch {best_epoch}, dev_loss={best_dev_loss:.6f})")
 
 
 if __name__ == "__main__":

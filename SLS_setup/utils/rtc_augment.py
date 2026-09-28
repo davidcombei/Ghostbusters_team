@@ -1,386 +1,420 @@
+"""
+RTC-SDD training-time augmentation.
 
+The challenge eval set holds a noisy subset whose conditions come from three
+upstream sources; this module puts the same conditions on the training clips:
+
+    stage       scenario    source
+    ------------------------------------------------------------------
+    office      S02         RNNoise background noise (Xiph)
+    coffee      S03         RNNoise background noise (Xiph)
+    echo        S04         CLAD's AddEchoes
+    rain        S05         ESC-50
+    footsteps   S06         ESC-50
+    keyboard    S07         ESC-50
+    reverb      reverb      measured RIRs shipped with the RNNoise data
+    musan       optional    MUSAN non-speech pool (data/augm/musan)
+    music       optional    any user-supplied music pool
+    suppress    optional    DeepFilterNet noise suppression
+    codec       in series   QQ / Zoom / WeChat / DingTalk / Lark / VooV / Telegram
+
+    https://media.xiph.org/rnnoise/data/     (noise + measured_rirs-v3.tar.gz)
+    https://github.com/CLAD23/CLAD           (AddEchoes, in DatasetUtils.py)
+    https://github.com/karolpiczak/ESC-50    (rain / footsteps / keyboard_typing)
+
+One augmentation per clip at most: with probability `p_apply` one stage is
+drawn, every stage with the same chance, and applied on its own. Stages are
+never chained, because the noisy eval clips carry a single condition each.
+The one exception is the codec: with probability `codec_p_apply` the clip is
+then passed through one RTC app's codec (codecs_augm), since every eval clip
+went through an app whatever its acoustic condition.
+
+No noise is synthesised here -- every sample mixed in is read from a file in
+the pools above. Synthetic noise is RawBoost's job, and RawBoost is a separate
+option (--use_rawboost / --no_rawboost).
+
+Build the pools with scripts/prepare_rtc_aug_data.py, then train with
+
+    --use_rtc_aug --aug_noise_dirs data/augm/noise --aug_rir_dirs data/augm/measured_rirs
+"""
 
 import os
 import random
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy import signal
+import soundfile as sf
+from scipy.signal import fftconvolve, resample_poly
 
-AUDIO_EXT = (".wav", ".flac", ".ogg", ".mp3")
-
-
-
-@dataclass
-class RTCAugConfig:
-    noise_dirs: List[str] = field(default_factory=list)   # ESC-50, MUSAN/noise, BSD10k ...
-    music_dirs: List[str] = field(default_factory=list)   # MUSAN/music, FMA-small ...
-    rir_dirs: List[str] = field(default_factory=list)     # RIRS_NOISES, MIT RIR, Aachen ...
-
-    p_apply: float = 0.8            
-    max_stages: int = 4             
-
-    p_speed: float = 0.15
-    p_rir: float = 0.25
-    p_noise: float = 0.35
-    p_music: float = 0.20
-    p_suppress: float = 0.30        
-    p_drc: float = 0.30
-    p_agc: float = 0.30
-    p_bandlimit: float = 0.15
-    p_resample8k: float = 0.15
-    p_codec: float = 0.60
-    p_packet_loss: float = 0.20
-    p_peak_norm: float = 0.80
-    p_fade: float = 0.20
-    p_trim_pad: float = 0.30
-
-    # ranges
-    speed_range = (0.95, 1.05)
-    noise_snr_range = (4.0, 25.0)
-    music_snr_range = (8.0, 22.0)
-    bandlimit_hz = (300.0, 3400.0)
-    peak_dbfs_range = (-12.0, -1.0)
-    agc_target_rms_db_range = (-28.0, -18.0)
-    packet_frame_ms = (10, 40)
-    packet_p_enter = (0.02, 0.08)   
-    packet_p_stay = (0.3, 0.7) 
-
-    # codecs: (ffmpeg encoder, mux format, demux format, bitrate list in kbps)
-    codecs = {
-        "opus": ("libopus", "ogg", "ogg", [6, 8, 12, 16, 24, 32]),
-        "mp3": ("libmp3lame", "mp3", "mp3", [24, 32, 48, 64]),
-        "aac": ("aac", "adts", "aac", [24, 32, 48, 64]),
-        "amrwb": ("libvo_amrwbenc", "amr", "amr", [6.6, 8.85, 12.65, 15.85, 23.85]),
-    }
-    codec_weights = {"opus": 0.5, "mp3": 0.2, "aac": 0.2, "amrwb": 0.1}
-
-    
-    suppress_fn: Optional[Callable[[np.ndarray, int], np.ndarray]] = None
-
-    seed: Optional[int] = None
+AUDIO_EXTS = (".wav", ".flac", ".ogg", ".mp3")      # noise pools: decoded by soundfile
+RIR_EXTS = AUDIO_EXTS + (".f32",)                   # RIRs may also be headerless float32
+RIR_SR = 48000          # sample rate of the headerless measured_rirs .f32 files
 
 
+# --------------------------------------------------------------------------- #
+# reading files
+# --------------------------------------------------------------------------- #
+def list_audio(directory, recursive=False, exts=AUDIO_EXTS):
+    """Audio files directly in `directory`, or anywhere under it."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+    paths = directory.rglob("*") if recursive else directory.iterdir()
+    return sorted(p for p in paths if p.is_file() and p.suffix.lower() in exts)
 
-def _list_audio(dirs: List[str]) -> List[str]:
-    out = []
-    for d in dirs:
-        if not d:
-            continue
-        for p in Path(d).rglob("*"):
-            if p.suffix.lower() in AUDIO_EXT:
-                out.append(str(p))
+
+def resample(audio, sr, target_sr):
+    """Exact-ratio resampling: 48000 -> 16000 is /3, 44100 -> 16000 is 160/441."""
+    if sr == target_sr or audio.size == 0:
+        return np.asarray(audio, dtype=np.float32)
+    step = np.gcd(int(sr), int(target_sr))
+    return resample_poly(audio, target_sr // step, sr // step).astype(np.float32)
+
+
+def read_window(path, n_samples, sr, rng):
+    """
+    `n_samples` from a random position in a noise file, tiled if it is shorter.
+    Only the part that is needed is decoded, so a long MUSAN recording costs the
+    same as a short ESC-50 clip.
+    """
+    info = sf.info(str(path))
+    if info.frames == 0:
+        return np.zeros(n_samples, dtype=np.float32)
+
+    needed = int(np.ceil(n_samples * info.samplerate / sr)) + 64
+    if info.frames > needed:
+        start = int(rng.integers(0, info.frames - needed))
+        block, file_sr = sf.read(str(path), start=start, frames=needed,
+                                 dtype="float32", always_2d=False)
+    else:
+        block, file_sr = sf.read(str(path), dtype="float32", always_2d=False)
+
+    if block.ndim == 2:
+        block = block.mean(axis=1)
+    block = resample(block, file_sr, sr)
+    if block.size == 0:
+        return np.zeros(n_samples, dtype=np.float32)
+    if block.size < n_samples:
+        block = np.tile(block, n_samples // block.size + 1)
+    offset = int(rng.integers(0, block.size - n_samples + 1))
+    return block[offset:offset + n_samples]
+
+
+def read_rir(path, sr):
+    """A whole impulse response: headerless float32 for .f32, else a normal read."""
+    path = Path(path)
+    if path.suffix.lower() == ".f32":
+        rir, file_sr = np.fromfile(str(path), dtype="<f4"), RIR_SR
+    else:
+        rir, file_sr = sf.read(str(path), dtype="float32", always_2d=False)
+        if rir.ndim == 2:
+            rir = rir.mean(axis=1)
+    return resample(rir, file_sr, sr)
+
+
+# --------------------------------------------------------------------------- #
+# one function per augmentation: audio in, audio out
+# --------------------------------------------------------------------------- #
+def add_noise(audio, noise_files, rng, snr_db=(5.0, 20.0), sr=16000):
+    """Mix one recording from `noise_files` under the speech at a random SNR."""
+    path = noise_files[int(rng.integers(len(noise_files)))]
+    noise = read_window(path, len(audio), sr, rng)
+
+    noise_power = float(np.mean(noise ** 2))
+    speech_power = float(np.mean(audio ** 2))
+    if noise_power <= 1e-12 or speech_power <= 1e-12:
+        return audio
+
+    snr = 10.0 ** (float(rng.uniform(*snr_db)) / 10.0)
+    gain = np.sqrt(speech_power / (snr * noise_power))
+    return audio + noise * np.float32(gain)
+
+
+def add_echo(audio, rng, delay_ms=(40.0, 160.0), strength=(0.15, 0.5), sr=16000):
+    """CLAD's AddEchoes: one attenuated delayed copy of the clip, summed on top."""
+    delay = int(float(rng.uniform(*delay_ms)) * sr / 1000.0)
+    delay = max(1, min(delay, len(audio) - 1))
+    out = audio.copy()
+    out[delay:] += audio[:-delay] * np.float32(rng.uniform(*strength))
     return out
 
 
-def _load_audio(path: str, sr: int) -> np.ndarray:
-    import librosa  
-    y, _ = librosa.load(path, sr=sr, mono=True)
-    return y.astype(np.float32)
+def add_reverb(audio, rir_files, rng, sr=16000, max_seconds=2.0):
+    """Convolve with a measured RIR, keeping the clip's length and level."""
+    rir = read_rir(rir_files[int(rng.integers(len(rir_files)))], sr)
+    if rir.size < 2:
+        return audio
+    rir = rir[int(np.argmax(np.abs(rir))):]         # drop the propagation delay
+    rir = rir[:int(max_seconds * sr)]
+    norm = float(np.sqrt(np.sum(rir ** 2)))
+    if rir.size < 2 or norm <= 1e-8:
+        return audio
+    wet = fftconvolve(audio, rir / norm)[:len(audio)]
+    return match_level(wet, audio)
 
 
-def _rms(x: np.ndarray) -> float:
-    return float(np.sqrt(np.mean(x ** 2) + 1e-12))
+# RTC app -> (bitrate kbps range, bandwidth cutoffs Hz, frame ms, libopus application).
+# Every app here ships Opus or SILK; ffmpeg has no SILK encoder, so QQ/WeChat use
+# Opus at low rate + narrow cutoff, which forces Opus into its SILK layer.
+CODEC_PROFILES = {
+    "qq":       ((10, 24), (6000, 8000), (20,), "voip"),        # SILK
+    "wechat":   ((8, 20), (4000, 8000), (20,), "voip"),         # SILK v3
+    "zoom":     ((24, 48), (8000,), (20,), "voip"),
+    "dingtalk": ((16, 32), (8000,), (20, 40), "voip"),
+    "lark":     ((24, 40), (8000,), (20,), "voip"),             # WebRTC Opus
+    "voov":     ((16, 32), (6000, 8000), (20,), "voip"),
+    "telegram": ((16, 32), (8000,), (20, 60), "audio"),         # Opus voice notes
+}
 
 
-def _fit_len(x: np.ndarray, n: int) -> np.ndarray:
-    if len(x) >= n:
-        return x[:n]
-    return np.pad(x, (0, n - len(x)))
+def _ffmpeg(args, stdin):
+    return subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", *args],
+                          input=stdin, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, check=True).stdout
 
 
-def _random_crop_or_tile(x: np.ndarray, n: int, rng: random.Random) -> np.ndarray:
-    if len(x) >= n:
-        s = rng.randint(0, len(x) - n)
-        return x[s:s + n]
-    reps = n // max(len(x), 1) + 1
-    return np.tile(x, reps)[:n]
+def codecs_augm(audio, rng, sr=16000, apps=None):
+    """Encode + decode through one RTC app's codec setting (ffmpeg libopus)."""
+    apps = list(apps or CODEC_PROFILES)
+    app = apps[int(rng.integers(len(apps)))]
+    kbps, cutoffs, frames, application = CODEC_PROFILES[app]
+    raw = ["-f", "f32le", "-ac", "1", "-ar", str(sr)]
+    try:
+        encoded = _ffmpeg([*raw, "-i", "pipe:0", "-c:a", "libopus",
+                           "-b:a", f"{int(rng.integers(kbps[0], kbps[1] + 1))}k",
+                           "-cutoff", str(cutoffs[int(rng.integers(len(cutoffs)))]),
+                           "-frame_duration", str(frames[int(rng.integers(len(frames)))]),
+                           "-application", application, "-f", "ogg", "pipe:1"],
+                          np.asarray(audio, dtype=np.float32).tobytes())
+        decoded = _ffmpeg(["-i", "pipe:0", *raw, "pipe:1"], encoded)
+    except (OSError, subprocess.CalledProcessError) as exc:    # never kill a training step
+        print(f"[rtc_augment] codec {app} failed ({exc}); passing through")
+        return audio, app
+    return np.frombuffer(decoded, dtype=np.float32), app
 
 
-
-def speed_perturb(x, sr, factor):
-    n_out = int(round(len(x) / factor))
-    return signal.resample(x, n_out).astype(np.float32)
-
-
-def add_at_snr(x, noise, snr_db):
-    if _rms(noise) < 1e-6:
-        return x
-    target_noise_rms = _rms(x) / (10 ** (snr_db / 20.0))
-    noise = noise * (target_noise_rms / _rms(noise))
-    return (x + noise).astype(np.float32)
+def suppress(audio, suppress_fn, sr=16000):
+    """Run a noise suppressor (DeepFilterNet); RTC endpoints do this too."""
+    try:
+        return suppress_fn(audio, sr)
+    except Exception as exc:                        # never kill a training step
+        print(f"[rtc_augment] suppression failed ({exc}); passing through")
+        return audio
 
 
-def apply_rir(x, rir):
-    rir = rir.astype(np.float32)
-    k = int(np.argmax(np.abs(rir)))
-    rir = rir[k:]
-    rir = rir / (np.sqrt(np.sum(rir ** 2)) + 1e-8)
-    y = signal.fftconvolve(x, rir, mode="full")[: len(x)]
-    y = y * (_rms(x) / (_rms(y) + 1e-8))
-    return y.astype(np.float32)
+# --------------------------------------------------------------------------- #
+# keeping the output well-behaved
+# --------------------------------------------------------------------------- #
+def match_level(out, ref):
+    """Rescale to the reference RMS so a stage cannot drift the level."""
+    out_rms = float(np.sqrt(np.mean(out ** 2)))
+    ref_rms = float(np.sqrt(np.mean(ref ** 2)))
+    if out_rms <= 1e-8 or ref_rms <= 1e-8:
+        return out
+    return out * np.float32(ref_rms / out_rms)
 
 
-def bandlimit(x, sr, lo, hi, order=6):
-    sos = signal.butter(order, [lo, hi], btype="bandpass", fs=sr, output="sos")
-    return signal.sosfiltfilt(sos, x).astype(np.float32)
+def finalize(out, audio):
+    """Same length as the input, finite, and not clipping."""
+    out = np.asarray(out, dtype=np.float32).reshape(-1)
+    if len(out) < len(audio):
+        out = np.pad(out, (0, len(audio) - len(out)))
+    out = out[:len(audio)]
+    if not np.all(np.isfinite(out)):
+        return audio
+    peak = float(np.abs(out).max())
+    if peak > 1.0:
+        out = out * np.float32(0.99 / peak)
+    return out
 
 
-def resample_via_8k(x, sr):
-    down = signal.resample_poly(x, 8000, sr)
-    up = signal.resample_poly(down, sr, 8000)
-    return _fit_len(up.astype(np.float32), len(x))
+def make_rng(seed):
+    """
+    One RNG per process. DataLoader workers are forked, so mixing the pid in is
+    what stops all of them replaying the same augmentations.
+    """
+    base = random.randrange(2 ** 31) if seed is None else int(seed)
+    return np.random.default_rng((base * 1_000_003 + os.getpid()) % (2 ** 63))
 
 
-def dynamic_range_compress(x, sr, threshold_db=-20.0, ratio=4.0, attack_ms=5.0, release_ms=50.0,
-                           makeup=True):
-    eps = 1e-8
-    att = np.exp(-1.0 / (sr * attack_ms / 1000.0))
-    rel = np.exp(-1.0 / (sr * release_ms / 1000.0))
-    env = np.zeros_like(x)
-    e = 0.0
-    ax = np.abs(x)
-    for i in range(len(x)):          
-        a = ax[i]
-        e = att * e + (1 - att) * a if a > e else rel * e + (1 - rel) * a
-        env[i] = e
-    env_db = 20 * np.log10(env + eps)
-    over = np.maximum(env_db - threshold_db, 0.0)
-    gain_db = -over * (1 - 1 / ratio)
-    y = x * (10 ** (gain_db / 20.0))
-    if makeup:
-        y = y * (_rms(x) / (_rms(y) + eps))
-    return y.astype(np.float32)
+# --------------------------------------------------------------------------- #
+# config + dispatch
+# --------------------------------------------------------------------------- #
+@dataclass
+class RTCAugConfig:
+    """Pools and knobs for :class:`RTCAugmenter`. Every field is optional."""
 
-
-def agc(x, target_rms_db):
-    target = 10 ** (target_rms_db / 20.0)
-    y = x * (target / (_rms(x) + 1e-8))
-    return np.clip(y, -1.0, 1.0).astype(np.float32)
-
-
-def peak_normalize(x, peak_dbfs):
-    peak = np.max(np.abs(x)) + 1e-8
-    return (x * (10 ** (peak_dbfs / 20.0)) / peak).astype(np.float32)
-
-
-def fade(x, sr, fin_ms, fout_ms):
-    y = x.copy()
-    n_in = min(int(sr * fin_ms / 1000), len(y))
-    n_out = min(int(sr * fout_ms / 1000), len(y))
-    if n_in > 0:
-        y[:n_in] *= np.linspace(0, 1, n_in, dtype=np.float32)
-    if n_out > 0:
-        y[-n_out:] *= np.linspace(1, 0, n_out, dtype=np.float32)
-    return y
-
-
-def trim_pad(x, sr, rng: random.Random, top_db=30):
-    import librosa
-    y, _ = librosa.effects.trim(x, top_db=top_db)
-    if len(y) < sr // 2:         
-        y = x
-    lead = int(sr * rng.uniform(0, 0.4))
-    trail = int(sr * rng.uniform(0, 0.5))
-    return np.pad(y, (lead, trail)).astype(np.float32)
-
-
-def packet_loss(x, sr, frame_ms, p_enter, p_stay, conceal=True):
-    n = int(sr * frame_ms / 1000)
-    y = x.copy()
-    lost = False
-    last_good = np.zeros(n, dtype=np.float32)
-    for s in range(0, len(y) - n + 1, n):
-        lost = (random.random() < p_stay) if lost else (random.random() < p_enter)
-        if lost:
-            if conceal:
-                y[s:s + n] = last_good * 0.6
-            else:
-                y[s:s + n] = 0.0
-        else:
-            last_good = y[s:s + n].copy()
-    return y
-
-
-
-class FFmpegCodec:
-    def __init__(self):
-        self.ffmpeg = shutil.which("ffmpeg")
-        self._available = {}
-
-    def ok(self) -> bool:
-        return self.ffmpeg is not None
-
-    def encoder_available(self, enc: str) -> bool:
-        if enc in self._available:
-            return self._available[enc]
-        if not self.ok():
-            self._available[enc] = False
-            return False
-        try:
-            out = subprocess.run([self.ffmpeg, "-hide_banner", "-encoders"],
-                                 capture_output=True, text=True, timeout=10).stdout
-            self._available[enc] = f" {enc} " in out or f" {enc}\n" in out
-        except Exception:
-            self._available[enc] = False
-        return self._available[enc]
-
-    def roundtrip(self, x: np.ndarray, sr: int, enc: str, fmt: str, kbps: float,
-                  demux_fmt: Optional[str] = None) -> np.ndarray:
-        pcm = x.astype(np.float32).tobytes()
-        enc_sr = 16000 if enc == "libvo_amrwbenc" else sr
-        enc_cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error",
-                   "-f", "f32le", "-ar", str(sr), "-ac", "1", "-i", "pipe:0",
-                   "-ar", str(enc_sr), "-c:a", enc, "-b:a", f"{kbps}k"]
-        if enc == "libopus":
-            enc_cmd += ["-application", "voip", "-frame_duration", "20"]
-        enc_cmd += ["-f", fmt, "pipe:1"]
-        encoded = subprocess.run(enc_cmd, input=pcm, capture_output=True, timeout=30)
-        if encoded.returncode != 0 or not encoded.stdout:
-            raise RuntimeError(encoded.stderr.decode(errors="ignore"))
-        dec_cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error",
-                   "-f", demux_fmt or fmt, "-i", "pipe:0",
-                   "-f", "f32le", "-ar", str(sr), "-ac", "1", "pipe:1"]
-        decoded = subprocess.run(dec_cmd, input=encoded.stdout, capture_output=True, timeout=30)
-        if decoded.returncode != 0 or not decoded.stdout:
-            raise RuntimeError(decoded.stderr.decode(errors="ignore"))
-        y = np.frombuffer(decoded.stdout, dtype=np.float32)
-        y = _align(x, y, sr)
-        return _fit_len(y, len(x))
-
-
-def _align(ref, y, sr, max_lag_ms=60):
-    n = min(len(ref), len(y), sr)
-    if n < sr // 4:
-        return y
-    max_lag = int(sr * max_lag_ms / 1000)
-    a, b = ref[:n], y[:n]
-    corr = signal.correlate(b, a, mode="full", method="fft")
-    lags = np.arange(-n + 1, n)
-    mask = np.abs(lags) <= max_lag
-    lag = int(lags[mask][np.argmax(corr[mask])])
-    if lag > 0:
-        y = y[lag:]
-    elif lag < 0:
-        y = np.pad(y, (-lag, 0))
-    return y
-
+    noise_dirs: Sequence[str] = field(default_factory=list)
+    music_dirs: Sequence[str] = field(default_factory=list)
+    rir_dirs: Sequence[str] = field(default_factory=list)
+    # MUSAN roots, scanned recursively. Used as-is with no filtering, so point
+    # this at the non-speech part only.
+    musan_dirs: Sequence[str] = field(default_factory=list)
+    with_echo: bool = True
+    p_apply: float = 0.8
+    # Kept for CLI compatibility: one augmentation per clip, so > 1 only warns.
+    max_stages: int = 1
+    seed: Optional[int] = None
+    suppress_fn: Optional[Callable] = None
+    sr: int = 16000
+    # How loud the pool recording sits under the speech, in dB SNR. One range
+    # for every stage that mixes in a file.
+    snr_db: Tuple[float, float] = (5.0, 20.0)
+    echo_delay_ms: Tuple[float, float] = (40.0, 160.0)
+    echo_strength: Tuple[float, float] = (0.15, 0.5)
+    rir_max_seconds: float = 2.0
+    # RTC codec applied after the stage above (or on its own if none was drawn).
+    with_codecs: bool = False
+    codec_p_apply: float = 1.0
+    codec_apps: Sequence[str] = field(default_factory=lambda: list(CODEC_PROFILES))
+    verbose: bool = True
 
 
 class RTCAugmenter:
-    def __init__(self, cfg: RTCAugConfig):
-        self.cfg = cfg
-        self.rng = random.Random(cfg.seed)
-        self.noise_files = _list_audio(cfg.noise_dirs)
-        self.music_files = _list_audio(cfg.music_dirs)
-        self.rir_files = _list_audio(cfg.rir_dirs)
-        self.codec = FFmpegCodec()
-        self._rir_cache = {}
-        if not self.noise_files:
-            print("[RTCAugmenter] no noise files found -> additive noise disabled")
-        if not self.rir_files:
-            print("[RTCAugmenter] no RIR files found -> reverberation disabled")
-        if not self.codec.ok():
-            print("[RTCAugmenter] ffmpeg not found -> codec augmentation disabled")
+    """
+    Picks one augmentation per clip and calls it: ``audio = augmenter(audio, sr)``.
 
-    def _noise(self, x, sr, files, snr_range):
-        path = self.rng.choice(files)
-        try:
-            nz = _load_audio(path, sr)
-        except Exception:
-            return x
-        nz = _random_crop_or_tile(nz, len(x), self.rng)
-        return add_at_snr(x, nz, self.rng.uniform(*snr_range))
+    float32 mono numpy in, float32 mono numpy of the same length out, so it
+    drops in ahead of cropping/padding and RawBoost.
+    """
 
-    def _rir(self, x, sr):
-        path = self.rng.choice(self.rir_files)
-        if path not in self._rir_cache:
-            try:
-                self._rir_cache[path] = _load_audio(path, sr)[: sr]  # ≤1 s tail is plenty
-            except Exception:
-                return x
-        return apply_rir(x, self._rir_cache[path])
+    def __init__(self, cfg=None):
+        self.cfg = cfg or RTCAugConfig()
+        if self.cfg.max_stages > 1 and self.cfg.verbose:
+            print(f"[rtc_augment] max_stages={self.cfg.max_stages} ignored: "
+                  f"one augmentation per clip at most")
 
-    def _codec(self, x, sr):
-        names = list(self.cfg.codec_weights.keys())
-        weights = [self.cfg.codec_weights[n] for n in names]
-        for _ in range(3):  # retry with another codec if encoder is missing
-            name = self.rng.choices(names, weights=weights, k=1)[0]
-            enc, fmt, demux, brs = self.cfg.codecs[name]
-            if not self.codec.encoder_available(enc):
-                continue
-            try:
-                return self.codec.roundtrip(x, sr, enc, fmt, self.rng.choice(brs), demux)
-            except Exception:
-                continue
-        return x
+        self.noise_files: Dict[str, List[Path]] = {}     # stage -> files
+        for directory in self.cfg.noise_dirs:
+            self._add_noise_dir(directory)
+        for directory in self.cfg.music_dirs:
+            self._add_pool("music", list_audio(directory))
+        for directory in self.cfg.musan_dirs:
+            self._add_pool("musan", list_audio(directory, recursive=True))
 
-    def __call__(self, x: np.ndarray, sr: int = 16000) -> np.ndarray:
-        c = self.cfg
-        if self.rng.random() > c.p_apply:
-            return x
-        x = np.asarray(x, dtype=np.float32)
+        self.rir_files: List[Path] = []
+        for directory in self.cfg.rir_dirs:
+            self.rir_files += list_audio(directory, exts=RIR_EXTS)
 
-        # RTC-ordered candidate stages: (prob, fn)
-        stages = [
-            (c.p_speed, lambda a: speed_perturb(a, sr, self.rng.uniform(*c.speed_range))),
-            (c.p_trim_pad, lambda a: trim_pad(a, sr, self.rng)),
-            (c.p_rir if self.rir_files else 0.0, lambda a: self._rir(a, sr)),
-            (c.p_noise if self.noise_files else 0.0,
-             lambda a: self._noise(a, sr, self.noise_files, c.noise_snr_range)),
-            (c.p_music if self.music_files else 0.0,
-             lambda a: self._noise(a, sr, self.music_files, c.music_snr_range)),
-            (c.p_suppress if c.suppress_fn else 0.0, lambda a: c.suppress_fn(a, sr)),
-            (c.p_drc, lambda a: dynamic_range_compress(
-                a, sr, threshold_db=self.rng.uniform(-30, -12), ratio=self.rng.uniform(2, 8))),
-            (c.p_agc, lambda a: agc(a, self.rng.uniform(*c.agc_target_rms_db_range))),
-            (c.p_bandlimit, lambda a: bandlimit(a, sr, *c.bandlimit_hz)),
-            (c.p_resample8k, lambda a: resample_via_8k(a, sr)),
-            (c.p_codec if self.codec.ok() else 0.0, lambda a: self._codec(a, sr)),
-            (c.p_packet_loss, lambda a: packet_loss(
-                a, sr, self.rng.randint(*c.packet_frame_ms),
-                self.rng.uniform(*c.packet_p_enter), self.rng.uniform(*c.packet_p_stay))),
-            (c.p_fade, lambda a: fade(a, sr, self.rng.uniform(20, 80), self.rng.uniform(50, 150))),
-        ]
+        self.stages = sorted(self.noise_files)
+        if self.cfg.with_echo:
+            self.stages.append("echo")              # needs no files
+        if self.rir_files:
+            self.stages.append("reverb")
+        if self.cfg.suppress_fn is not None:
+            self.stages.append("suppress")
 
-        chosen = [fn for p, fn in stages if self.rng.random() < p]
-        if len(chosen) > c.max_stages:
-            idx = sorted(self.rng.sample(range(len(chosen)), c.max_stages))
-            chosen = [chosen[i] for i in idx]
+        self.stage_counts: Dict[str, int] = {}      # per-process tally, for logging
+        self.rng = None
+        self.rng_pid = None
 
-        for fn in chosen:
-            try:
-                x = fn(x)
-            except Exception as e:  
-                print(f"[RTCAugmenter] stage failed: {e}")
+        if self.cfg.verbose:
+            print(f"[rtc_augment] {self.describe()}")
 
-        if self.rng.random() < c.p_peak_norm:
-            x = peak_normalize(x, self.rng.uniform(*c.peak_dbfs_range))
-        return np.clip(x, -1.0, 1.0).astype(np.float32)
+    def _add_noise_dir(self, directory):
+        """A directory of audio files is one pool; a directory of directories is one each."""
+        root = Path(directory)
+        if not root.is_dir():
+            if self.cfg.verbose:
+                print(f"[rtc_augment] missing pool dir: {root}")
+            return
+        self._add_pool(root.name.lower(), list_audio(root))
+        for sub in sorted(p for p in root.iterdir() if p.is_dir()):
+            self._add_pool(sub.name.lower(), list_audio(sub))
+
+    def _add_pool(self, stage, files):
+        if files:
+            self.noise_files.setdefault(stage, []).extend(files)
+
+    def describe(self):
+        pools = ", ".join(f"{s}:{len(f)}" for s, f in sorted(self.noise_files.items()))
+        chance = f"1/{len(self.stages)}" if self.stages else "n/a"
+        low, high = self.cfg.snr_db
+        codecs = (f"p={self.cfg.codec_p_apply} [{', '.join(self.cfg.codec_apps)}]"
+                  if self.cfg.with_codecs else "off")
+        return (f"p_apply={self.cfg.p_apply} one stage/clip, equal chance {chance} | "
+                f"snr={low:g}..{high:g} dB | stages=[{', '.join(self.stages)}] | "
+                f"pools=({pools}) | rirs={len(self.rir_files)} | then codec {codecs}")
+
+    def _get_rng(self):
+        if self.rng is None or self.rng_pid != os.getpid():
+            self.rng = make_rng(self.cfg.seed)
+            self.rng_pid = os.getpid()
+        return self.rng
+
+    def __call__(self, audio, sr=None):
+        cfg = self.cfg
+        sr = sr or cfg.sr
+        audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if len(audio) < 16:
+            return audio
+
+        rng = self._get_rng()
+        out = self._stage(audio, rng, sr)
+        if cfg.with_codecs and rng.random() < cfg.codec_p_apply:
+            out, app = codecs_augm(out, rng, sr, cfg.codec_apps)
+            self._count(f"codec:{app}")
+            out = finalize(out, audio)
+        return out
+
+    def _count(self, stage):
+        self.stage_counts[stage] = self.stage_counts.get(stage, 0) + 1
+
+    def _stage(self, audio, rng, sr):
+        """At most one of the acoustic stages, drawn with equal chance."""
+        cfg = self.cfg
+        if not self.stages or rng.random() >= cfg.p_apply:
+            return audio
+
+        stage = self.stages[int(rng.integers(len(self.stages)))]    # equal chance
+        self._count(stage)
+
+        if stage == "echo":
+            out = add_echo(audio, rng, cfg.echo_delay_ms, cfg.echo_strength, sr)
+        elif stage == "reverb":
+            out = add_reverb(audio, self.rir_files, rng, sr, cfg.rir_max_seconds)
+        elif stage == "suppress":
+            out = suppress(audio, cfg.suppress_fn, sr)
+        else:
+            out = add_noise(audio, self.noise_files[stage], rng, cfg.snr_db, sr)
+        return finalize(out, audio)
 
 
+# --------------------------------------------------------------------------- #
+# DeepFilterNet, loaded once per process on first use
+# --------------------------------------------------------------------------- #
+_DF_MODEL = None
 
-def make_deepfilternet_suppressor():
-    """Returns fn(audio, sr) -> audio, or None if DeepFilterNet isn't installed.
-    Public weights, trained for enhancement (not spoofing) -> allowed under RTCFake rules."""
+
+def deepfilternet_suppress(audio, sr=16000):
+    """Denoise one clip with DeepFilterNet, resampling to its rate and back."""
+    global _DF_MODEL
+    import torch
+    import torchaudio
+    from df.enhance import enhance, init_df
+
+    if _DF_MODEL is None:
+        model, df_state, _ = init_df(config_allow_defaults=True)
+        _DF_MODEL = (model, df_state)
+    model, df_state = _DF_MODEL
+
+    df_sr = df_state.sr()
+    clip = torch.from_numpy(np.asarray(audio, dtype=np.float32)).unsqueeze(0)
+    if sr != df_sr:
+        clip = torchaudio.functional.resample(clip, sr, df_sr)
+    clean = enhance(model, df_state, clip)
+    if sr != df_sr:
+        clean = torchaudio.functional.resample(clean, df_sr, sr)
+    return clean.squeeze(0).cpu().numpy().astype(np.float32)
+
+
+def make_deepfilternet_suppressor(sr=16000):
+    """Return the suppressor, or None when DeepFilterNet is not installed."""
     try:
-        import torch
-        from df.enhance import enhance, init_df
-        model, df_state, _ = init_df(log_level="ERROR")
-        df_sr = df_state.sr()
-
-        def _fn(x, sr):
-            xt = torch.from_numpy(x).unsqueeze(0)
-            if sr != df_sr:
-                xt = torch.from_numpy(signal.resample_poly(x, df_sr, sr).astype(np.float32)).unsqueeze(0)
-            y = enhance(model, df_state, xt).squeeze(0).numpy()
-            if sr != df_sr:
-                y = signal.resample_poly(y, sr, df_sr).astype(np.float32)
-            return _fit_len(y, len(x))
-        return _fn
+        import df.enhance  # noqa: F401
     except Exception:
         return None
+    return deepfilternet_suppress
