@@ -86,16 +86,31 @@ def pad_audio(audio, max_len=64600, random_start=False):
 
 
 def build_augmenter(args):
-    """Build an RTCAugmenter from argparse-style args (all optional)."""
-    if not getattr(args, "use_rtc_aug", False):
+    """
+    Build an RTCAugmenter from argparse-style args (all optional).
+
+    --use_rtc_aug turns on the eval-scenario stages (office, coffee, echo,
+    rain, footsteps, keyboard, reverb); --musan adds the MUSAN pool. Either
+    flag alone is enough, and with both the stages simply share one draw, so a
+    clip still gets at most one augmentation. With --use_rtc_aug an RTC codec
+    (QQ/Zoom/WeChat/DingTalk/Lark/VooV/Telegram) then follows in series, unless
+    --no_codec_aug.
+    """
+    use_rtc = getattr(args, "use_rtc_aug", False)
+    use_musan = getattr(args, "musan", False)
+    if not (use_rtc or use_musan):
         return None
     cfg = RTCAugConfig(
-        noise_dirs=getattr(args, "aug_noise_dirs", []) or [],
-        music_dirs=getattr(args, "aug_music_dirs", []) or [],
-        rir_dirs=getattr(args, "aug_rir_dirs", []) or [],
+        noise_dirs=(getattr(args, "aug_noise_dirs", []) or []) if use_rtc else [],
+        music_dirs=(getattr(args, "aug_music_dirs", []) or []) if use_rtc else [],
+        rir_dirs=(getattr(args, "aug_rir_dirs", []) or []) if use_rtc else [],
+        musan_dirs=[getattr(args, "musan_dir", "data/augm/musan")] if use_musan else [],
+        with_echo=use_rtc,
         p_apply=getattr(args, "aug_p_apply", 0.8),
-        max_stages=getattr(args, "aug_max_stages", 4),
+        max_stages=getattr(args, "aug_max_stages", 1),
         seed=getattr(args, "seed", None),
+        with_codecs=use_rtc and not getattr(args, "no_codec_aug", False),
+        codec_p_apply=getattr(args, "aug_codec_p", 1.0),
     )
     if getattr(args, "aug_use_deepfilternet", False):
         cfg.suppress_fn = make_deepfilternet_suppressor()
@@ -142,10 +157,16 @@ class SpoofAudioDataset(Dataset):
         return audio.astype(np.float32), sr
 
     def _augment(self, audio, sr):
+        """
+        RTC augmentation and RawBoost are independent and each optional. The RTC
+        augmenter applies at most one scenario per clip (office, coffee, echo,
+        rain, footsteps, keyboard, reverb, musan), then an RTC codec; RawBoost
+        is governed by its own flag.
+        """
         if not self.train:
             return audio
         if self.augmenter is not None:
-            audio = self.augmenter(audio, sr)       # RTC chain first (codec, noise, PLC ...)
+            audio = self.augmenter(audio, sr)
         if self.use_rawboost:
             audio = process_rawboost_feature(audio, sr, self.args, self.algo)
         return audio
