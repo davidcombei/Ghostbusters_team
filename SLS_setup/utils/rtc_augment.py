@@ -31,11 +31,13 @@ went through an app whatever its acoustic condition.
 
 No noise is synthesised here -- every sample mixed in is read from a file in
 the pools above. Synthetic noise is RawBoost's job, and RawBoost is a separate
-option (--use_rawboost / --no_rawboost).
+option (--use_rawboost).
 
-Build the pools with scripts/prepare_rtc_aug_data.py, then train with
+Build the pools under data/augmentation with scripts/prepare_rtc_aug_data.py,
+then train with
 
-    --use_rtc_aug --aug_noise_dirs data/augm/noise --aug_rir_dirs data/augm/measured_rirs
+    --use_rtc_aug --aug_noise_dirs data/augmentation/rnnoise data/augmentation/esc50 \
+        --aug_rir_dirs data/augmentation/rirs [--musan --musan_dir data/augmentation/musan]
 """
 
 import os
