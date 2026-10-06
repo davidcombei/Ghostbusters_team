@@ -51,6 +51,8 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import fftconvolve, resample_poly
 
+from .heldout_reserve import check_pools
+
 AUDIO_EXTS = (".wav", ".flac", ".ogg", ".mp3")      # noise pools: decoded by soundfile
 RIR_EXTS = AUDIO_EXTS + (".f32",)                   # RIRs may also be headerless float32
 RIR_SR = 48000          # sample rate of the headerless measured_rirs .f32 files
@@ -308,6 +310,9 @@ class RTCAugmenter:
             self.stages.append("reverb")
         if self.cfg.suppress_fn is not None:
             self.stages.append("suppress")
+
+        # sim-heldout / sim-matched components must never reach training (utils/heldout_reserve.py)
+        check_pools([f for files in self.noise_files.values() for f in files] + self.rir_files)
 
         self.stage_counts: Dict[str, int] = {}      # per-process tally, for logging
         self.rng = None
