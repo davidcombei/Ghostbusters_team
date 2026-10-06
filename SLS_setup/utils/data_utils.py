@@ -11,6 +11,7 @@ from transformers import AutoFeatureExtractor
 
 from .RawBoost import ISD_additive_noise, LnL_convolutive_noise, SSI_additive_noise, normWav
 from .rtc_augment import RTCAugConfig, RTCAugmenter, make_deepfilternet_suppressor
+from .level_augment import ChainAugmenter, LevelAugConfig, LevelAugmenter
 
 
 LABEL_TO_ID = {
@@ -86,6 +87,28 @@ def pad_audio(audio, max_len=64600, random_start=False):
 
 
 def build_augmenter(args):
+    """
+    The training augmenter: the RTC augmenter (below) and, with --use_level_aug, the level
+    augmenter (utils/level_augment.py) after it -- both before RawBoost. None if neither is on.
+    """
+    rtc = _build_rtc_augmenter(args)
+    if not getattr(args, "use_level_aug", False):
+        return rtc
+    level = LevelAugmenter(LevelAugConfig(
+        p_apply=getattr(args, "level_p_apply", 0.8),
+        gain_mode=getattr(args, "level_gain_mode", "absolute"),
+        target_db=tuple(getattr(args, "level_target_db", (-38.0, -12.0))),
+        gain_db=tuple(getattr(args, "level_gain_db", (-10.0, 10.0))),
+        p_agc=getattr(args, "level_agc_p", 0.30),
+        p_comp=getattr(args, "level_comp_p", 0.15),
+        p_limit=getattr(args, "level_limit_p", 0.15),
+        clip_p=getattr(args, "level_clip_p", 0.3),
+        seed=getattr(args, "seed", None),
+    ))
+    return ChainAugmenter([rtc, level]) if rtc is not None else level
+
+
+def _build_rtc_augmenter(args):
     """
     Build an RTCAugmenter from argparse-style args (all optional).
 
