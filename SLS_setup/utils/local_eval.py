@@ -47,10 +47,11 @@ def read_meta(meta_path):
         return {row["path"]: row for row in csv.DictReader(f)}
 
 
-def load_sets(config_path, names=None, ssl_name=None, clean_n=None, seed=0):
+def load_sets(config_path, names=None, ssl_name=None, clean_n=None, seed=0, loudness=None):
     """
     {name: {"role", "dataset", "file_list", "y_spoof", "meta_rows"}} for the requested sets.
     `clean_n` subsamples the role=clean set to a fixed, seeded subset (for per-epoch speed).
+    `loudness` (utils/loudness.LoudnessNormalizer or None) is applied at read time, as in training.
     """
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
@@ -68,7 +69,7 @@ def load_sets(config_path, names=None, ssl_name=None, clean_n=None, seed=0):
             file_list = sorted(random.Random(seed).sample(file_list, clean_n))
         meta = read_meta(_resolve(entry.get("meta")))
         dataset = SpoofAudioDataset(file_list=file_list, base_dir=_resolve(entry["base_dir"]),
-                                    labels=labels, ssl_name=ssl_name, train=False)
+                                    labels=labels, ssl_name=ssl_name, train=False, loudness=loudness)
         sets[name] = {
             "role": role,
             "dataset": dataset,

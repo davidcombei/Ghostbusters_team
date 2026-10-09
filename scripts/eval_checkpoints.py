@@ -42,6 +42,7 @@ from local_eval import BREAKDOWN_KEYS, read_scores, write_scores  # noqa: E402  
 from model.sls_model import ModelSLS, ssl_path  # noqa: E402
 from utils import metrics  # noqa: E402
 from utils.data_utils import set_random_seed  # noqa: E402
+from utils.data_utils import build_loudness  # noqa: E402
 from utils.local_eval import evaluate_sets, load_sets, score_dataset  # noqa: E402
 
 DEFAULT_NAMES = ["dev_online_clean", "sim_matched_v1", "sim_heldout_v1", "sim_echo_v1"]
@@ -85,6 +86,11 @@ def resolve_model_args(args, exp):
     for key in ("ssl_name", "n_layers", "devices", "layer_split"):
         if getattr(args, key) is None:
             setattr(args, key, cfg.get(key))
+    # loudness normalisation must match training: config.yaml unless --loudness_norm / --no_loudness_norm
+    if args.loudness_norm is None:
+        args.loudness_norm = bool(cfg.get("loudness_norm", False))
+    if args.loudness_norm_lufs is None:
+        args.loudness_norm_lufs = float(cfg.get("loudness_norm_lufs", -23.0))
     if args.ssl_name is None or args.n_layers is None:
         raise SystemExit(f"{exp} has no config.yaml with ssl_name / n_layers: pass --ssl_name and "
                          f"--n_layers (e.g. --ssl_name Qwen/Qwen3-ASR-1.7B --n_layers 24)")
@@ -224,6 +230,12 @@ def main():
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--force", action="store_true", help="rescore sets that are already cached")
+    parser.add_argument("--loudness_norm", dest="loudness_norm", action="store_true", default=None,
+                        help="read-time loudness normalisation (default: as in <exp>/config.yaml)")
+    parser.add_argument("--no_loudness_norm", dest="loudness_norm", action="store_false", default=None,
+                        help="force it off even if the run was trained with it")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=None,
+                        help="target LUFS (default: from <exp>/config.yaml, else -23)")
     args = parser.parse_args()
 
     exp = Path(args.exp)
@@ -251,7 +263,7 @@ def main():
     print(f"{exp.name}: {len(ckpts)} checkpoints, {len(selected)} selected | {args.ssl_name}, "
           f"{args.n_layers} layers | sets {args.names} -> {out_root}", flush=True)
 
-    sets = load_sets(args.sets, args.names, ssl_name=args.ssl_name)
+    sets = load_sets(args.sets, args.names, ssl_name=args.ssl_name, loudness=build_loudness(args))
     if args.select_on != "dev_loss" and args.select_on.split(".", 1)[0] not in SPLITS:
         raise SystemExit(f"--select_on {args.select_on}: expected <split>.<metric>, split in {list(SPLITS)}")
 

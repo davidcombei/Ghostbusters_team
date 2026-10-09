@@ -99,7 +99,7 @@ def evaluate_dev(data_loader, model, device, criterion, out_device=None):
 
 
 
-def write_run_config(exp_root, args, augmenter):
+def write_run_config(exp_root, args, augmenter, loudness=None):
     """exp/<run>/config.yaml (+ git.diff when the tree is dirty). Never fails the run."""
     try:
         import transformers
@@ -121,6 +121,7 @@ def write_run_config(exp_root, args, augmenter):
             "host": socket.gethostname(),
             "versions": {"torch": str(torch.__version__), "transformers": str(transformers.__version__)},
             "rtc_augmentation": augmenter.describe() if augmenter is not None else "off",
+            "loudness_norm": loudness.describe() if loudness is not None else "off",
             "rawboost": f"algo {args.algo}" if args.use_rawboost else "off",
             "args": json.loads(json.dumps(vars(args), default=str)),     # plain types only
         }
@@ -420,6 +421,13 @@ def main():
     parser.add_argument("--level_clip_p", type=float, default=0.3,
                         help="share of clips still overshooting after the dynamics stage that are "
                              "hard-clipped (the rest go through the limiter)")
+    # --- loudness normalisation (utils/loudness.py): deterministic BS.1770 integrated-loudness target,
+    #     applied in SpoofAudioDataset._load before every augmentation, on train AND dev. Pass the
+    #     same flags to main_eval.py / scripts/local_eval.py so inference sees the same levels. ---
+    parser.add_argument("--loudness_norm", action="store_true", default=False,
+                        help="normalise every clip to --loudness_norm_lufs at read time (train, dev, eval)")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0,
+                        help="target integrated loudness in LUFS (EBU R128 speech: -23; streaming: -14)")
     # --- local proxy evaluation (utils/local_eval.py; sets from scripts/build_dev_noisy_sim.py).
     #     Read-only: scored in eval mode after each epoch, never used for the loss or the LR. ---
     parser.add_argument("--local_eval_sets", type=str, default=None,
@@ -494,6 +502,7 @@ def main():
         print(f"RTC augmentation: {train_set.augmenter.describe()}")
     else:
         print("RTC augmentation: off")
+    print(f"Loudness norm: {train_set.loudness.describe() if train_set.loudness is not None else 'off'}")
     print(f"RawBoost: {'algo ' + str(args.algo) if args.use_rawboost else 'off'}")
     print(f"Train trials: {len(train_files)}")
     print(f"Dev trials: {len(dev_files)}")
@@ -501,13 +510,13 @@ def main():
     print(f"Parameters: {sum(p.numel() for p in model.parameters())}")
     print(f"Trainable parameters: {sum(p.numel() for p in trainable)} (freeze_ssl={args.freeze_ssl})")
     if not args.resume:                         # keep the original run's config.yaml
-        write_run_config(exp_root, args, train_set.augmenter)
+        write_run_config(exp_root, args, train_set.augmenter, train_set.loudness)
 
     local_sets = None
     if args.local_eval_sets:
         from utils.local_eval import load_sets
         local_sets = load_sets(args.local_eval_sets, args.local_eval_names, ssl_name=args.ssl_name,
-                               clean_n=args.local_eval_clean_n, seed=args.seed)
+                               clean_n=args.local_eval_clean_n, seed=args.seed, loudness=train_set.loudness)
         print("Local eval: " + ", ".join(f"{n}({len(s['file_list'])})" for n, s in local_sets.items()))
     elif args.earlystop_metric == "wf1":
         raise ValueError("--earlystop_metric wf1 needs --local_eval_sets")

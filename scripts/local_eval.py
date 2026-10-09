@@ -32,7 +32,7 @@ import torch  # noqa: E402
 from main_eval import merge_checkpoints  # noqa: E402
 from model.sls_model import ModelSLS, ssl_path  # noqa: E402
 from utils import metrics  # noqa: E402
-from utils.data_utils import set_random_seed  # noqa: E402
+from utils.data_utils import build_loudness, set_random_seed  # noqa: E402
 from utils.local_eval import evaluate_sets, load_sets, score_dataset  # noqa: E402
 
 BREAKDOWN_KEYS = ("family", "snr_db", "codec", "src", "lang", "aec")
@@ -159,6 +159,11 @@ def main():
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--force", action="store_true", help="rescore sets that are already cached")
+    parser.add_argument("--loudness_norm", action="store_true",
+                        help="normalise every clip to --loudness_norm_lufs at read time; pass it when the "
+                             "model was trained with it (config.yaml: loudness_norm). The score cache in "
+                             "<out>/scores is keyed by set name only: use a fresh --out or --force when toggling")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0)
     parser.add_argument("--registry", type=str, default=None)
     parser.add_argument("--id", type=str, default=None)
     parser.add_argument("--owner", type=str, default=None)
@@ -171,7 +176,7 @@ def main():
 
     out = Path(args.out)
     (out / "scores").mkdir(parents=True, exist_ok=True)
-    sets = load_sets(args.sets, args.names, ssl_name=args.ssl_name)
+    sets = load_sets(args.sets, args.names, ssl_name=args.ssl_name, loudness=build_loudness(args))
 
     if args.merge_list:
         paths = read_merge_list(args.merge_list)
@@ -181,7 +186,8 @@ def main():
         paths = [str(resolve_ckpt(args.model_path))]
         model_desc = args.model_path
     config_hash = hashlib.sha1(json.dumps(
-        {"ckpts": paths, "ssl": args.ssl_name, "n_layers": args.n_layers}).encode()).hexdigest()[:10]
+        {"ckpts": paths, "ssl": args.ssl_name, "n_layers": args.n_layers,
+         "loudness_norm": args.loudness_norm_lufs if args.loudness_norm else None}).encode()).hexdigest()[:10]
 
     scores, model, device = {}, None, None
     for name, s in sets.items():
@@ -208,6 +214,7 @@ def main():
     report = {
         "model": model_desc, "checkpoints": paths, "ssl_name": args.ssl_name,
         "n_layers": args.n_layers, "config_hash": config_hash, "sets_file": args.sets,
+        "loudness_norm": args.loudness_norm_lufs if args.loudness_norm else None,
         "full": evaluate_sets(sets, scores),
         "half_B": evaluate_sets(sets, scores, half="B"),
         "breakdowns": {},
