@@ -10,6 +10,7 @@ Code involved:
 | [`SLS_setup/utils/data_utils.py`](../SLS_setup/utils/data_utils.py) | `build_augmenter`, `SpoofAudioDataset` (load → augment → crop/featurize), RawBoost dispatch |
 | [`SLS_setup/utils/rtc_augment.py`](../SLS_setup/utils/rtc_augment.py) | RTC augmenter: noise/echo/reverb/MUSAN/music/DeepFilterNet stages + RTC codec |
 | [`SLS_setup/utils/RawBoost.py`](../SLS_setup/utils/RawBoost.py) | RawBoost synthetic-noise algorithms (Tak et al., ICASSP 2022) |
+| [`SLS_setup/utils/loudness.py`](../SLS_setup/utils/loudness.py) | Optional read-time loudness normalisation (`--loudness_norm`), applied before every augmentation and also on dev / eval |
 
 ---
 
@@ -56,11 +57,22 @@ flowchart TD
 
 The order of operations is fixed:
 
-1. `_load`: the clip is read at 16 kHz.
+1. `_load`: the clip is read at 16 kHz. With `--loudness_norm` it is then normalised to a fixed integrated loudness (see §2.1), **before** anything below and regardless of `train`.
 2. `_augment` ([data_utils.py:159](../SLS_setup/utils/data_utils.py#L159)) applies the RTC augmenter first, then RawBoost.
 3. `_featurize` ([data_utils.py:174](../SLS_setup/utils/data_utils.py#L174)) calls `pad_audio(audio, 64600, random_start=True)`, which takes a random crop of a long clip or tiles a short one. If a W2V-BERT or Qwen3-ASR backbone is used, its HF feature extractor then runs on that crop.
 
 Augmentation is therefore applied to the **full-length clip before cropping**. Noise windows, echo and reverb are computed over the whole recording, and the model sees a random ~4 s crop of the result.
+
+### 2.1 Loudness normalisation (`utils/loudness.py`, `--loudness_norm`)
+
+A deterministic pre-processing step, not an augmentation: with `--loudness_norm [--loudness_norm_lufs -23]` every clip is scaled to the target integrated loudness (ITU-R BS.1770-4 LUFS, measured with [`pyloudnorm`](https://github.com/csteinmetz1/pyloudnorm)) inside `SpoofAudioDataset._load`, i.e. on the full-length clip, before the RTC augmenter, the level augmenter and RawBoost. Because it lives in `_load` and not in `_augment`, it runs on the **train, dev, local-eval and inference** datasets alike, so the model sees one level distribution at training and test time. It complements the stochastic, training-only level augmentation (`--use_level_aug`), which can still randomise the level afterwards.
+
+- Default target **-23 LUFS** (EBU R128 speech reference; speech peaks stay below full scale). `--loudness_norm_lufs` overrides it (streaming services use -14, the `probe_loudnorm` set was built with ffmpeg `loudnorm` at -16).
+- Clips shorter than one 400 ms gating block and clips the gate measures as silent (every block below -70 LUFS) are returned unchanged (`LoudnessNormalizer.skipped` counts them).
+- If the gain still pushes a peak above 1.0 the clip goes through `finalize` like every other stage (scaled to a 0.99 peak), so hot targets such as -14 end up below target on peaky clips.
+- Cost: about 2 ms per 4 s clip, paid in the DataLoader workers.
+- **Evaluation must match training.** `main_train.py` records the flags in `config.yaml` (`loudness_norm:` line and `args`). `scripts/eval_checkpoints.py` reads them back from `config.yaml` (override with `--loudness_norm` / `--no_loudness_norm`); `scripts/local_eval.py` and `main_eval.py` need `--loudness_norm [--loudness_norm_lufs X]` passed explicitly. `scripts/local_eval.py` caches scores per set name, so use a fresh `--out` (or `--force`) when toggling the flag. Under the flag the `probe_orig` / `probe_gain_*` / `probe_loudnorm` sets become (nearly) the same audio, so those probes stop measuring anything.
+- Dependency: `pip install pyloudnorm==0.2.0` in the run env (`/root/.conda/envs/rtc-sdd`). It is imported only when the flag is on.
 
 ---
 
@@ -275,6 +287,8 @@ RawBoost: algo 5                                 # or "RawBoost: off"
 | `--aug_codec_p P` | 1.0 | Probability that a clip goes through one RTC codec |
 | `--musan` | off | Adds the `musan` stage; works with or without `--use_rtc_aug` |
 | `--musan_dir DIR` | `data/augm/musan` | MUSAN root, non-speech only, scanned recursively |
+| `--loudness_norm` | off | Normalises every clip (train, dev, eval) to `--loudness_norm_lufs` at read time, before all augmentation (§2.1) |
+| `--loudness_norm_lufs L` | -23.0 | Target integrated loudness in LUFS |
 | `--use_rawboost` | off | Enables RawBoost on every training clip |
 | `--algo N` | 5 | RawBoost variant (see §4) |
 | RawBoost params | see §4 | |
