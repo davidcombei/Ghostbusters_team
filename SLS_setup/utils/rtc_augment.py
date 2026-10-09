@@ -31,11 +31,13 @@ went through an app whatever its acoustic condition.
 
 No noise is synthesised here -- every sample mixed in is read from a file in
 the pools above. Synthetic noise is RawBoost's job, and RawBoost is a separate
-option (--use_rawboost / --no_rawboost).
+option (--use_rawboost).
 
-Build the pools with scripts/prepare_rtc_aug_data.py, then train with
+Build the pools under data/augmentation with scripts/prepare_rtc_aug_data.py,
+then train with
 
-    --use_rtc_aug --aug_noise_dirs data/augm/noise --aug_rir_dirs data/augm/measured_rirs
+    --use_rtc_aug --aug_noise_dirs data/augmentation/rnnoise data/augmentation/esc50 \
+        --aug_rir_dirs data/augmentation/rirs [--musan --musan_dir data/augmentation/musan]
 """
 
 import os
@@ -48,6 +50,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import soundfile as sf
 from scipy.signal import fftconvolve, resample_poly
+
+from .heldout_reserve import check_pools
 
 AUDIO_EXTS = (".wav", ".flac", ".ogg", ".mp3")      # noise pools: decoded by soundfile
 RIR_EXTS = AUDIO_EXTS + (".f32",)                   # RIRs may also be headerless float32
@@ -306,6 +310,9 @@ class RTCAugmenter:
             self.stages.append("reverb")
         if self.cfg.suppress_fn is not None:
             self.stages.append("suppress")
+
+        # sim-heldout / sim-matched components must never reach training (utils/heldout_reserve.py)
+        check_pools([f for files in self.noise_files.values() for f in files] + self.rir_files)
 
         self.stage_counts: Dict[str, int] = {}      # per-process tally, for logging
         self.rng = None

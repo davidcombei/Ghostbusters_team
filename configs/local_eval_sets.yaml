@@ -1,0 +1,108 @@
+# Local proxy sets for scripts/local_eval.py and main_train.py --local_eval_sets.
+# role: clean | matched | heldout | echo | probe
+#   WF1_local = 0.3 * F1(clean) + 0.7 * mean(F1(matched), F1(heldout)), all at threshold 0.5.
+# Relative paths resolve against the repository root. The sim sets are generated (frozen, v1)
+# by scripts/build_dev_noisy_sim.py; never regenerate a version in place -- bump it instead.
+
+dev_online_clean:
+  role: clean
+  base_dir: /mnt/paml-research/RTCFake/data/wav/dev
+  protocol: data/dev_noisy_sim/dev_online_clean/protocol.txt
+
+sim_matched_v1:
+  role: matched
+  base_dir: data/dev_noisy_sim/matched_v1
+  protocol: data/dev_noisy_sim/matched_v1/protocol.txt
+  meta: data/dev_noisy_sim/matched_v1/meta.csv
+
+sim_heldout_v1:
+  role: heldout
+  base_dir: data/dev_noisy_sim/heldout_v1
+  protocol: data/dev_noisy_sim/heldout_v1/protocol.txt
+  meta: data/dev_noisy_sim/heldout_v1/meta.csv
+
+sim_echo_v1:
+  role: echo
+  base_dir: data/dev_noisy_sim/echo_v1
+  protocol: data/dev_noisy_sim/echo_v1/protocol.txt
+  meta: data/dev_noisy_sim/echo_v1/meta.csv
+
+# per-epoch selection subsets (1k each, half A only) -- used by main_train.py
+sim_matched_mini:
+  role: matched
+  base_dir: data/dev_noisy_sim/matched_v1
+  protocol: data/dev_noisy_sim/matched_v1/protocol_mini.txt
+  meta: data/dev_noisy_sim/matched_v1/meta.csv
+
+sim_heldout_mini:
+  role: heldout
+  base_dir: data/dev_noisy_sim/heldout_v1
+  protocol: data/dev_noisy_sim/heldout_v1/protocol_mini.txt
+  meta: data/dev_noisy_sim/heldout_v1/meta.csv
+
+# shortcut-audit probes (scripts/build_probe_sets.py) -- role probe: never part of WF1
+probe_orig:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/orig
+  protocol: data/dev_noisy_sim/probes_v1/orig/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/orig/meta.csv
+probe_sil_only:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/sil_only
+  protocol: data/dev_noisy_sim/probes_v1/sil_only/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/sil_only/meta.csv
+probe_noise_only:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/noise_only
+  protocol: data/dev_noisy_sim/probes_v1/noise_only/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/noise_only/meta.csv
+probe_trimmed:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/trimmed
+  protocol: data/dev_noisy_sim/probes_v1/trimmed/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/trimmed/meta.csv
+probe_padded:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/padded
+  protocol: data/dev_noisy_sim/probes_v1/padded/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/padded/meta.csv
+probe_gain_up:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_up
+  protocol: data/dev_noisy_sim/probes_v1/gain_up/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_up/meta.csv
+probe_gain_down:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_down
+  protocol: data/dev_noisy_sim/probes_v1/gain_down/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_down/meta.csv
+probe_gain_m20:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_m20
+  protocol: data/dev_noisy_sim/probes_v1/gain_m20/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_m20/meta.csv
+probe_gain_m6:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_m6
+  protocol: data/dev_noisy_sim/probes_v1/gain_m6/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_m6/meta.csv
+probe_gain_p6:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_p6
+  protocol: data/dev_noisy_sim/probes_v1/gain_p6/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_p6/meta.csv
+probe_gain_p10_limit:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/gain_p10_limit
+  protocol: data/dev_noisy_sim/probes_v1/gain_p10_limit/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/gain_p10_limit/meta.csv
+probe_agc_dynaudnorm:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/agc_dynaudnorm
+  protocol: data/dev_noisy_sim/probes_v1/agc_dynaudnorm/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/agc_dynaudnorm/meta.csv
+probe_loudnorm:
+  role: probe
+  base_dir: data/dev_noisy_sim/probes_v1/loudnorm
+  protocol: data/dev_noisy_sim/probes_v1/loudnorm/protocol.txt
+  meta: data/dev_noisy_sim/probes_v1/loudnorm/meta.csv

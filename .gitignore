@@ -1,3 +1,4 @@
 SLS_setup/exp
 __pycache__
 *.log
+data/

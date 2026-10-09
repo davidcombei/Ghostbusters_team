@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.sls_model import ModelSLS, ssl_path
-from utils.data_utils import SpoofAudioDataset, read_protocol, set_random_seed
+from utils.data_utils import SpoofAudioDataset, build_loudness, read_protocol, set_random_seed
 
 # Checkpoints averaged when --model_merging is set (all must share the same architecture/args).
 MERGE_CHECKPOINTS = [
@@ -59,11 +59,15 @@ def main():
     model_src.add_argument("--model_path", type=str)
     model_src.add_argument("--model_merging", action="store_true",
                            help="average the weights of the checkpoints listed in MERGE_CHECKPOINTS")
+    parser.add_argument("--merge_list", type=str, default=None,
+                        help="with --model_merging: text file with one checkpoint path per line, "
+                             "used instead of MERGE_CHECKPOINTS; the list used is copied next to "
+                             "--score_path as merge_list.txt")
     parser.add_argument("--eval_data_path", type=str, required=True)
     parser.add_argument("--protocol_path", type=str, required=True)
     parser.add_argument("--score_path", type=str, required=True)
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--arch", type=str, default="aasist", choices=["aasist", "sls"],
+    parser.add_argument("--arch", type=str, default="sls", choices=["aasist", "sls"],
                         help="aasist = XLS-R 300M + AASIST (model/model.py); "
                              "sls = XLS-R 2B + SLS (model/sls_model.py)")
     parser.add_argument("--n_layers", type=int, default=48,
@@ -82,6 +86,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--loudness_norm", action="store_true", default=False,
+                        help="normalise every clip to --loudness_norm_lufs at read time; pass it when the "
+                             "checkpoint was trained with it (config.yaml: loudness_norm)")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0,
+                        help="target integrated loudness in LUFS (must match training)")
     parser.add_argument("--cudnn-deterministic-toggle", action="store_false", default=True)
     parser.add_argument("--cudnn-benchmark-toggle", action="store_true", default=False)
     args = parser.parse_args()
@@ -89,9 +98,10 @@ def main():
 
     set_random_seed(args.seed, args)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    file_list, _ = read_protocol(args.protocol_path, require_label=False)
+    file_list, _ = read_protocol(args.protocol_path, require_label=None)     # labels, if any, are ignored
     dataset = SpoofAudioDataset(file_list=file_list, base_dir=args.eval_data_path, labels=None,
-                                ssl_name=args.ssl_name if args.arch == "sls" else None)
+                                ssl_name=args.ssl_name if args.arch == "sls" else None,
+                                loudness=build_loudness(args))
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
 
     if args.arch == "sls":
@@ -101,7 +111,17 @@ def main():
         from model.model import Model           # only needed for --arch aasist
         model = Model(args, device).to(device)
     if args.model_merging:
-        state_dict = merge_checkpoints(MERGE_CHECKPOINTS)
+        merge_paths = MERGE_CHECKPOINTS
+        if args.merge_list:
+            with open(args.merge_list, encoding="utf-8") as f:
+                merge_paths = [line.strip() for line in f
+                               if line.strip() and not line.lstrip().startswith("#")]
+        state_dict = merge_checkpoints(merge_paths)
+        list_dir = os.path.dirname(args.score_path)
+        if list_dir:
+            os.makedirs(list_dir, exist_ok=True)
+        with open(os.path.join(list_dir, "merge_list.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(merge_paths) + "\n")
     else:
         state_dict = torch.load(args.model_path, map_location="cpu")
     model.load_state_dict(state_dict)
