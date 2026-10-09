@@ -26,6 +26,9 @@ type metric values yourself.
 1. **Model args.** Read `$RUN/config.yaml`: `args.ssl_name`, `args.n_layers`, `args.num_epochs`,
    `args.keep_topk_by_wf1`, `args.earlystop_metric`, `args.earlystop_epoch`, `args.track`. Every eval command
    gets `MODEL="--ssl_name <ssl_name> --n_layers <n_layers>"` from here (the stored `...-hf` name is fine).
+   If `args.loudness_norm` is `true`, append `--loudness_norm --loudness_norm_lufs <args.loudness_norm_lufs>`
+   to `MODEL`: the run normalised every clip's loudness at read time and evaluation must do the same
+   (`scripts/local_eval.py` and `main_eval.py` take the same two flags; `eval_checkpoints.py` reads them itself).
    No `config.yaml` → stop: the run predates the per-epoch metrics and `select_topk.py` cannot rank it.
 2. **Has training finished?**
    - `pgrep -af main_train.py`: if a process mentions the run's track or run dir, training is still running.
