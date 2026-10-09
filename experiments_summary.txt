@@ -1,0 +1,8 @@
+Backbone Architecture	Parameters / Layers	Frozen Baseline	Finetuned Baseline	Finetuning Delta	Peak Score (WF1)	Best Configuration / Strategy
+qwen ASR 1.7B	1.7B (24L)	65.89	76.18	+10.29	83.20	Merging [1, 8, 13, 18, 23] + Full Aug (83.20)
+qwen ASR 0.6B	0.6B (18L)	72.30	71.74	-0.56	72.30	Frozen Baseline (72.30)
+xls-r-2b	2.0B (48L)	66.20	74.10	+7.90	77.70	Merging [3, 4, 6, 9, 11] (77.70)
+xls-r-1b	1.0B (48L)	67.00	68.63	+1.63	68.63	Standard Finetuning (68.63)
+xls-r-300m	300M (24L)	60.00	57.30	-2.70	60.00	Frozen Baseline (60.00)
+w2v-large-robust	317M (24L)	60.80	62.95	+2.15	62.95	Standard Finetuning (62.95)
+xls-r-2b_augm	2.0B (48L)	-	67.33	-	67.33	Community Augmentations (67.33)
