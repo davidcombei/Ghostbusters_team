@@ -1,0 +1,72 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {"type": "integer"},
+    "report_path": {"type": "string", "description": "debate/proposal_v<N>.md you wrote"},
+    "headline": {"type": "string"},
+    "base_label": {"type": "string"},
+    "levers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "short snake_case id, e.g. codec_g7xx"},
+          "title": {"type": "string"},
+          "category": {"type": "string", "enum": ["augmentation", "architecture", "loss", "training", "sampler", "eval"]},
+          "flags": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "--new_flag (must not exist in the base trainer)"},
+            "type": {"type": "string", "enum": ["bool", "int", "float", "str", "choice", "list"]},
+            "default": {"type": "string", "description": "the value that reproduces the base exactly"},
+            "choices": {"type": "array", "items": {"type": "string"}},
+            "help": {"type": "string"}},
+            "required": ["name", "type", "default", "choices", "help"]}},
+          "default_equivalence": {"type": "string", "description": "why the defaults reproduce the base bit-for-bit (RNG draws, forward, state_dict)"},
+          "mechanism": {"type": "string"},
+          "gap_ids": {"type": "array", "items": {"type": "string"}},
+          "idea_ids": {"type": "array", "items": {"type": "string"}},
+          "sources": {"type": "array", "items": {"type": "string"}, "description": "URLs from 02_sota.md"},
+          "hypothesis": {"type": "string"},
+          "predicted_signature": {"type": "string", "description": "which sets / slices move, in which direction, and what must not move"},
+          "falsifier": {"type": "string"},
+          "expect_regex": {"type": "array", "items": {"type": "string"}, "description": "stdout header regexes proving the lever is on"},
+          "state_dict_change": {"type": "boolean"},
+          "params_added": {"type": "boolean"},
+          "dependencies": {"type": "array", "items": {"type": "string"}},
+          "files": {"type": "array", "items": {"type": "string"}, "description": "files in the new module / scripts prefix"},
+          "equivalence_test": {"type": "string", "description": "the check that proves lever-off == base"},
+          "cost": {"type": "object", "properties": {
+            "est_loc": {"type": "integer"}, "extra_vram_gib": {"type": "number"}, "epoch_time_frac": {"type": "number"}},
+            "required": ["est_loc", "extra_vram_gib", "epoch_time_frac"]},
+          "smoke": {"type": "object", "properties": {
+            "minutes_est": {"type": "number"}, "checks": {"type": "array", "items": {"type": "string"}}},
+            "required": ["minutes_est", "checks"]},
+          "wave_lever": {"type": "object", "properties": {
+            "set": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                    "description": "flag -> values the wave screens (store_true flag -> [])"},
+            "coupled": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+            "targets": {"type": "string"}},
+            "required": ["set", "coupled", "targets"]},
+          "risks": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["id", "title", "category", "flags", "default_equivalence", "mechanism", "gap_ids", "idea_ids", "sources",
+                     "hypothesis", "predicted_signature", "falsifier", "expect_regex", "state_dict_change", "params_added",
+                     "dependencies", "files", "equivalence_test", "cost", "smoke", "wave_lever", "risks"]
+      }
+    },
+    "shared_changes": {"type": "array", "items": {"type": "object", "properties": {
+      "what": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}}, "required": ["what", "files"]}},
+    "eval_impact": {"type": "object", "properties": {
+      "state_dict_change": {"type": "boolean"}, "new_profile": {"type": "boolean"}, "scripts": {"type": "array", "items": {"type": "string"}}},
+      "required": ["state_dict_change", "new_profile", "scripts"]},
+    "responses": {"type": "array", "items": {"type": "object", "properties": {
+      "objection_id": {"type": "string"}, "action": {"type": "string", "enum": ["accept", "modify", "rebut"]}, "detail": {"type": "string"}},
+      "required": ["objection_id", "action", "detail"]}},
+    "alternatives_response": {"type": "array", "items": {"type": "object", "properties": {
+      "idea": {"type": "string"}, "action": {"type": "string", "enum": ["adopt", "decline"]}, "detail": {"type": "string"}},
+      "required": ["idea", "action", "detail"]}},
+    "dropped": {"type": "array", "items": {"type": "object", "properties": {"lever_id": {"type": "string"}, "reason": {"type": "string"}},
+                                          "required": ["lever_id", "reason"]}}
+  },
+  "required": ["version", "report_path", "headline", "base_label", "levers", "shared_changes", "eval_impact", "responses",
+               "alternatives_response", "dropped"]
+}

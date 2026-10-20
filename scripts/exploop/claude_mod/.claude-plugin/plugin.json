@@ -1,0 +1,9 @@
+{
+  "name": "exploop-view",
+  "version": "0.1.0",
+  "description": "Live view of the running exploop wave: /exploop pane (phase, epoch vs best, eval steps, Claude steps, events) and toasts on phase / epoch / new best / BLOCKED",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Ghostbusters_team"
+  }
+}

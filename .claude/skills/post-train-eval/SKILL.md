@@ -12,6 +12,9 @@ Use the `rtc-sdd` env: `PY=/root/.conda/envs/rtc-sdd/bin/python`. Commands run f
 unless the step says `cd SLS_setup`. Every number you report comes from the scripts' output; never
 type metric values yourself.
 
+The unattended exploop supervisor runs the same steps 1-5 (plus the final-epoch readout and the CI)
+from `scripts/exploop/profiles/sls_local17.json`. Keep the two in sync when you change a command here.
+
 ## Arguments
 
 - **run dir (required)**: `SLS_setup/exp/<run>`, `exp/<run>`, an absolute path, or just `<run>`. Resolve it to
@@ -31,8 +34,8 @@ type metric values yourself.
    (`scripts/local_eval.py` and `main_eval.py` take the same two flags; `eval_checkpoints.py` reads them itself).
    No `config.yaml` → stop: the run predates the per-epoch metrics and `select_topk.py` cannot rank it.
 2. **Has training finished?**
-   - `pgrep -af main_train.py`: if a process mentions the run's track or run dir, training is still running.
-     Stop and tell the user (a top-K picked now would change later).
+   - `pgrep -af "main_train.py|b3wave.train"`: if a process mentions the run's track or run dir, training is
+     still running. Stop and tell the user (a top-K picked now would change later).
    - Otherwise compare the last epoch in `$RUN/metrics.jsonl` with `num_epochs`. If it is short, find the best
      epoch by `wf1.wf1`. If `earlystop_metric` is `wf1` and `last - best >= earlystop_epoch`, it **early-stopped**
      (main_train prints that only to stdout, not to `logs/train.log`). Report it with the best epoch. If it is

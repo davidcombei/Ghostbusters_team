@@ -1,0 +1,13 @@
+{
+  "name": "exploop",
+  "description": "Claude Code mods for the exploop training-exploration supervisor",
+  "owner": {
+    "name": "Ghostbusters_team"
+  },
+  "plugins": [
+    {
+      "name": "exploop-view",
+      "source": "./"
+    }
+  ]
+}

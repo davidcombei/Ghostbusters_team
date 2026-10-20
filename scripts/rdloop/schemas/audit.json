@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "report_path": {"type": "string", "description": "the 01_audit.md you wrote"},
+    "headline": {"type": "string", "description": "one line: where the base stands and the biggest gap"},
+    "best": {
+      "type": "object",
+      "properties": {
+        "label": {"type": "string"},
+        "run_dir": {"type": "string"},
+        "readout_merge": {"type": "string", "description": "half_B WF1 of the merge readout, copied from a file (or '' if none)"},
+        "readout_final": {"type": "string", "description": "half_B WF1 of the final-epoch readout, copied from a file (or '')"},
+        "source": {"type": "string", "description": "file the numbers were copied from"}
+      },
+      "required": ["label", "run_dir", "readout_merge", "readout_final", "source"]
+    },
+    "gaps": {
+      "type": "array",
+      "description": "at least 2, ordered by priority",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "G1, G2, ..."},
+          "title": {"type": "string"},
+          "evidence": {"type": "array", "items": {"type": "object", "properties": {
+            "file": {"type": "string"}, "what": {"type": "string"}, "value": {"type": "string", "description": "copied from the file"}},
+            "required": ["file", "what", "value"]}},
+          "slices": {"type": "array", "items": {"type": "string"}},
+          "size_note": {"type": "string", "description": "how much WF1 / how many errors this gap carries, from files"},
+          "causes": {"type": "array", "items": {"type": "string"}, "description": "hypotheses, labelled as such"},
+          "priority": {"type": "integer", "description": "1 (highest) .. 5"},
+          "already_tried": {"type": "array", "items": {"type": "string"}, "description": "levers that targeted it, with outcome"},
+          "addressable_by": {"type": "array", "items": {"type": "string", "enum": ["augmentation", "loss", "architecture", "sampler", "optimisation", "data", "eval"]}}
+        },
+        "required": ["id", "title", "evidence", "slices", "size_note", "causes", "priority", "already_tried", "addressable_by"]
+      }
+    },
+    "exhausted_levers": {
+      "type": "array",
+      "items": {"type": "object", "properties": {"lever": {"type": "string"}, "outcome": {"type": "string"}, "source": {"type": "string"}},
+                "required": ["lever", "outcome", "source"]}
+    },
+    "constraints": {"type": "array", "items": {"type": "string"}, "description": "challenge rules, compute, deadline, data limits"}
+  },
+  "required": ["report_path", "headline", "best", "gaps", "exhausted_levers", "constraints"]
+}

@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "report_path": {"type": "string", "description": "the 02_sota.md you wrote"},
+    "headline": {"type": "string"},
+    "queries": {"type": "array", "items": {"type": "string"}, "description": "the web searches you ran"},
+    "ideas": {
+      "type": "array",
+      "description": "at least 4 idea cards, ranked",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "I1, I2, ..."},
+          "title": {"type": "string"},
+          "category": {"type": "string", "enum": ["augmentation", "architecture", "loss", "training", "sampler", "eval"]},
+          "gap_ids": {"type": "array", "items": {"type": "string"}},
+          "mechanism": {"type": "string", "description": "why it should move the targeted gap"},
+          "sources": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "url": {"type": "string", "description": "the URL you fetched with WebFetch"},
+            "venue_year": {"type": "string"}, "quote": {"type": "string", "description": "short quote from the fetched page"}},
+            "required": ["title", "url", "venue_year", "quote"]}},
+          "reported_effect": {"type": "object", "properties": {
+            "dataset": {"type": "string"}, "metric": {"type": "string"}, "delta": {"type": "string"}, "quote": {"type": "string"}},
+            "required": ["dataset", "metric", "delta", "quote"]},
+          "transfer_risk": {"type": "string", "description": "why it may not transfer to RTC / Qwen3-ASR + SLS"},
+          "sketch": {"type": "string", "description": "where it would hook into the b3wave code"},
+          "est_loc": {"type": "integer"},
+          "state_dict_change": {"type": "boolean"},
+          "dependencies": {"type": "array", "items": {"type": "string"}, "description": "python modules beyond the rtc-sdd env"},
+          "extra_vram_gib": {"type": "number"},
+          "extra_time_frac": {"type": "number", "description": "epoch time multiplier, 1.0 = unchanged"},
+          "novelty_vs_tried": {"type": "string", "description": "how it differs from exhausted levers"}
+        },
+        "required": ["id", "title", "category", "gap_ids", "mechanism", "sources", "reported_effect", "transfer_risk", "sketch",
+                     "est_loc", "state_dict_change", "dependencies", "extra_vram_gib", "extra_time_frac", "novelty_vs_tried"]
+      }
+    },
+    "rejected": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}, "why": {"type": "string"}},
+                                           "required": ["title", "why"]}}
+  },
+  "required": ["report_path", "headline", "queries", "ideas", "rejected"]
+}

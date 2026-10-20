@@ -1,0 +1,13 @@
+{
+  "name": "rdloop",
+  "description": "Claude Code mods for the rdloop research & development supervisor",
+  "owner": {
+    "name": "Ghostbusters_team"
+  },
+  "plugins": [
+    {
+      "name": "rdloop-view",
+      "source": "./"
+    }
+  ]
+}
