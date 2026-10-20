@@ -1,0 +1,130 @@
+{
+  "version": 2,
+  "report_path": "rdloop/B4/debate/critique_v2.md",
+  "headline": "v2 resolves all 9 v1 objections, verified against the code, the score files and the fetched sources (NS-only pywebrtc-audio backend, same-source contrasts, ADD-C range, CPU-s costs, 48 kHz decode). One new major remains: O2.1, on the mechanism readout v2 built at the critic's request. Its 'shown/refuted' rule is calibrated only against within-run noise, and B2f is an outlier on the DSP contrasts. Applied to 10 earlier runs that never saw NS / VAD / PLC, the exact pre-registered rule gives: opus_plc 'shown' 3/10 (including the one-factor B2e), dtx_gate (i) 'shown' 3/10, apm_ns 'refuted' 7/10. The fix is cheap: re-centre on that null panel and require each lever to beat the other B4 arms (placebo check). dtx_gate's tertile criterion holds up against the null (0/9 excluding the failed B2a). Four minors: the selftest asserts may fail for legitimate NS behaviour; the heldout VAD stage uses the same zero fill (wrong G6 label); the tertile cut points are tie-ambiguous; TFCL's 'most damaging' wording is overstated.",
+  "objections": [
+    {
+      "id": "O2.1",
+      "lever_id": "",
+      "severity": "major",
+      "category": "eval",
+      "claim": "The mechanism verdict is not calibrated against run-to-run variation, and B2f is an outlier on the same-source contrasts. The thresholds (-0.4*G = -0.34/-0.42/-0.38) and the clip-bootstrap CI cover only within-run noise. Unrelated retrains move these contrasts by 0.3-1.1 logit, in a direction set by B2f's position. Applying the proposal's full 'shown' rule (CI, clip DiD, half-B sign on both readouts) to 10 earlier runs with no NS/VAD/PLC exposure gives: NS 1 shown (failed B2a) and 7 refuted; VAD (i) 3 shown (B2e, B3b, B3e); PLC online 3 shown (B2c, B2d, B2e). A null opus_plc arm therefore has about a 1-in-3 chance of 'mechanism shown', and a real apm_ns effect at threshold would read about 0 (inconclusive or refuted). The verdict drives the section 5 combined-run recommendation and the apm_ns retry.",
+      "evidence": [
+        "computed (/tmp/b4crit/did.py, rule.py, panel.py; read-only joins of SLS_setup/exp/<run>/local_eval/epoch_8|epoch_10/scores/sim_heldout_v1.{logits,txt} with data/dev_noisy_sim/heldout_v1/meta.csv; ref = B2f epoch_8; full set; clipped +-8): NS (276/106) DiD B2a..B3e = -1.42,-0.02,-0.03,+0.39,+0.36,+0.49,+0.41,+0.62,+0.68,+0.01 (excl B2a mean +0.32, sd 0.27); VAD (136/246) = +0.67,-0.15,-0.17,-0.68,-0.74,-0.51,-0.70,-0.67,-0.65,-0.81 (excl B2a mean -0.57, sd 0.24); PLC online (114/254) = -0.79,-0.42,-1.08,-1.11,-0.73,-0.54,-0.09,-0.33,-0.88,+0.03 (excl B2a mean -0.57, sd 0.41)",
+        "full rule on PLC online: B2c -1.08 CI[-1.74,-0.47] clip +9.3 halfB -1.29/-1.19 -> shown; B2d -1.11 CI[-1.91,-0.36] -> shown; B2e -0.73 CI[-1.47,-0.05] -> shown",
+        "B2f merge-vs-final DiD: NS +0.22, VAD -0.05, PLC +0.08 (CI half-width ~0.38), so within-run noise is much smaller than cross-run",
+        "rdloop/B4/debate/proposal_v2.md:138-143 (verdict rule), :112-116 (only B2e as cross-run reference), :725 (section 5 keys on 'mechanism shown')"
+      ],
+      "required_change": "In scripts/b4_dsp_slices.py and the signatures: (1) add --null_runs (B2b-B2e, B3a-B3e final readouts; B2a flagged or excluded) and print each contrast's null mean / SD / min; (2) re-centre: DiD* = DiD - null mean. 'Shown' = DiD* <= -0.4*G AND DiD below the panel minimum (or <= mean - 2 SD), with the clip and half-B conditions re-centred the same way. 'Refuted' = DiD* >= 0. (3) Pre-register a placebo-arm check: a lever's own-contrast DiD must be more negative than the other B4 arms' DiD on that contrast. (4) Restate the apm_ns / opus_plc thresholds and falsifier (1) on DiD*. dtx_gate (ii) can stay."
+    },
+    {
+      "id": "O2.2",
+      "lever_id": "apm_ns",
+      "severity": "minor",
+      "category": "feasibility",
+      "claim": "Two start-up selftest asserts can fail for legitimate NS behaviour and stop the arm at start-up. (a) The '-30 dBFS 1 kHz tone within +-3 dB at 6 dB' check uses a stationary tone, which a quantile noise estimator learns as noise. With priming on the clip's own first 0.5 s, attenuation up to the 6 dB floor is expected, while the intent ('no gain stage') is one-sided. (b) The '<100 Hz within 3 dB of 1-4 kHz' no-HPF check rests on two FFT bins (DC, 62.5 Hz) and is noisy on short excerpts.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v2.md:338-343 (asserts), :349 (selftest at start-up), :333 (priming)",
+        "https://github.com/strands-labs/pywebrtc-audio: process() 'Internally splits into 10ms frames'"
+      ],
+      "required_change": "Make the gain check one-sided on a speech-like or AM input: output RMS <= input RMS + 0.5 dB at every level. Run the no-HPF check on >= 5 s of white noise after priming, averaged over frames, on 62.5-187.5 Hz (exclude DC). A failure must name the failing assert."
+    },
+    {
+      "id": "O2.3",
+      "lever_id": "dtx_gate",
+      "severity": "minor",
+      "category": "leakage",
+      "claim": "The G6 label says the heldout VAD is 'energy VAD, white-noise fill', but the reserved sim_ops.vad_gate fills 50/50 with exact zeros or white noise. dtx_gate's zero fill, and the zero half of mix, is the same fill as about half of the heldout VAD slice (offline bona full set: zero 75 / cng 61). Only the detector and the CNG colour are unseen. This is not leakage (the reserve is by op name), but the VAD contrast mixes a near-seen and a less-seen half.",
+      "evidence": [
+        "SLS_setup/utils/sim_ops.py:103 (fill = 'cng' if rng.random() < 0.5 else 'zero'), :110 (out[gated] = 0.0)",
+        "computed: heldout VAD fills zero 336 / cng 293 (all clips); offline bona full set zero 75 / cng 61",
+        "SLS_setup/b3wave/heldout_reserve.py:34 (vad_gate reserved by name)",
+        "rdloop/B4/debate/proposal_v2.md:276"
+      ],
+      "required_change": "Relabel heldout vad:* as 'gating family and zero fill seen; detector (energy VAD) and white-noise CNG unseen'. Print the VAD contrast split by fill in b4_dsp_slices.py, and read a gain confined to vad:zero as near-in-distribution."
+    },
+    {
+      "id": "O2.4",
+      "lever_id": "dtx_gate",
+      "severity": "minor",
+      "category": "eval",
+      "claim": "The tertile cut points as written do not reproduce the section 1.1 table. The non-speech fraction is quantised to k/201 frames, so many clips tie at the cuts. With the stated rule and cuts 0.159 / 0.249, I get n = 484/534/482 against the proposal's 518/500/482 (q33/q67 still come out at exactly 0.159/0.249). The low/mid saturated counts shift accordingly (58/78 and 61/81 against 63/73 and 66/76; high 109/107 matches). Matched and heldout share the same 750 bona sources, so the effective n is 750.",
+      "evidence": [
+        "computed (/tmp/b4crit/tert.py, tert2.py; rtc-sdd env, soundfile, /mnt/paml-research/RTCFake/data/wav/dev): tertile n 484/534/482 tiled, 484/536/480 untiled; q33/q67 = 0.159/0.249",
+        "data/dev_noisy_sim/{heldout,matched}_v1/meta.csv: 750 bona source_utt each, overlap 750",
+        "rdloop/B4/debate/proposal_v2.md:146-157"
+      ],
+      "required_change": "Pin the measure in the script: cuts as frame counts (e.g. low <= 32/201, high > 50/201) or exact floats with the tie rule, the energy definition and the short-clip tiling. checks dsp_slices must reproduce the table, and the plan must state that n counts each source twice."
+    }
+  ],
+  "resolved": [
+    "O1.1",
+    "O1.2",
+    "O1.3",
+    "O1.4",
+    "O1.5",
+    "O1.6",
+    "O1.7",
+    "O1.8",
+    "O1.9"
+  ],
+  "still_open": [],
+  "per_lever": [
+    {
+      "lever_id": "apm_ns",
+      "stance": "modify",
+      "note": "The lever is sound now (NS only, apm_balance, guards in both directions). Its falsifier (1) 'NS DiD >= 0 => refuted' fires for 7/10 unrelated runs, so restate it on the re-centred DiD (O2.1). Make the selftest asserts robust (O2.2)."
+    },
+    {
+      "lever_id": "dtx_gate",
+      "stance": "keep",
+      "note": "Tertile criterion (ii) holds up against the null panel (only the failed B2a passes; no run passes the half-B condition). Correct the G6 label and split the VAD readout by fill (O2.3), pin the tertile cuts (O2.4), and re-centre criterion (i) (O2.1)."
+    },
+    {
+      "lever_id": "opus_plc",
+      "stance": "modify",
+      "note": "Implementation, cost (0.85 projected) and attribution control are good. Its primary contrast is the most exposed to O2.1: 3/10 null runs, including the one-factor B2e, read 'mechanism shown'. Re-centre on the null panel, add the placebo-arm check, or add a within-slice dose-response reading."
+    }
+  ],
+  "alternatives": [
+    {
+      "idea": "Calibrate the mechanism readout on a null panel and placebo arms. The 10 existing runs with heldout logits give per-contrast null mean / SD. The 3 one-flag B4 arms serve as mutual placebos. 'Shown' requires the re-centred DiD to beat the panel and the other two B4 arms on the same contrast. About 30 lines in b4_dsp_slices.py, no GPU.",
+      "why": "It fixes O2.1. The current rule reads unrelated retrains as 'shown' (PLC 3/10, VAD 3/10) or 'refuted' (NS 7/10) because B2f is an outlier on these slices.",
+      "idea_ids": [
+        "I1",
+        "I2",
+        "I3"
+      ]
+    },
+    {
+      "idea": "Give opus_plc a signature that does not depend on B2f: dose-response within the heldout PLC slice (bona with realised loss >= 0.1 vs < 0.05), mirroring dtx_gate's tertile readout, which holds up against the null panel.",
+      "why": "A within-slice dose contrast does not regress to the B2f reference, so a generic retrain cannot fake it the way it fakes the PLC-vs-no-PLC contrast.",
+      "idea_ids": [
+        "I3"
+      ]
+    }
+  ],
+  "citation_checks": [
+    {
+      "url": "https://github.com/strands-labs/pywebrtc-audio",
+      "ok": true,
+      "note": "pip install pywebrtc-audio; import pywebrtc_audio; NoiseSuppressor(sample_rate=16000, num_channels=1, level=1); process() takes int16/float32 of any length and splits into 10 ms frames internally; levels 0-3 = 6/12/18/21 dB; HPF only as an AudioProcessor option; Python 3.10-3.14 wheels incl. Linux x86_64."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.12423v2",
+      "ok": true,
+      "note": "'Five PLRs, 0%, 1%, 5%, 10%, and 20%'; 'The EER remains unchanged, with a slight improvement of 0.003% from C0 to C1'. No PLC method or burst model named, consistent with GE as a design choice."
+    },
+    {
+      "url": "https://arxiv.org/abs/2603.14033",
+      "ok": true,
+      "note": "WCR 'What Counts as Real? ...'; the abstract contains 'detectors can often identify that speech has been processed'."
+    },
+    {
+      "url": "https://arxiv.org/html/2607.17761",
+      "ok": true,
+      "note": "WebRTC implementations, order AEC->NS->AGC->VAD; Table 2 XLSR-AASIST clean-only 0.23/22.20, Mix 0.52/17.39. Caveat: 'VAD is the most damaging stage' (proposal_v2.md:453) is overstated, since Table 1 columns are cumulative and the page does not isolate VAD's own damage; Mix's training data is not explicitly defined."
+    }
+  ],
+  "verdict": "revise"
+}

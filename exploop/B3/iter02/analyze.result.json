@@ -1,0 +1,105 @@
+{
+  "report_path": "docs/experiments-exploration/b3-experiments/20261010_231745_B3b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_sampbal_s1234.md",
+  "headline": "B3b (B3a + --sampler balanced --sampler_lang_balance --sampler_bona_frac 0.5 --ce_weights 0.3223 0.6777) is negative on both readouts per verdict.json, so B3a stays the reference. The half_B top-5 merge went from 93.06 to 92.23, delta -0.83, CI [-1.46, -0.25], clean_drop 0.52, decision drop. The final epoch went from 92.94 to 92.36, delta -0.58, CI [-1.21, +0.02], decision drop (verdict.json, compare_all_readouts.txt). The loss also shows on half A (merge 93.04 to 92.50) and on the full sets (registry 93.05 to 92.36). The sampler ran as designed: realised shares were bona 0.499-0.503 and en 0.497-0.503, with the same 75792 steps. It improved Chinese bona (noisy zh false alarms 89 to 78) but made English bona worse on every set. Half_B English R_bona went 67.4 to 64.3 on matched, 62.0 to 61.2 on heldout and 85.6 to 81.2 on clean; English noisy false alarms rose from 91 to 96, and over the four sets English bona were 13 fixed against 50 broken. Spoof recall fell (matched 99.38 to 98.07, heldout 99.06 to 98.32), and noisy spoof misses rose from 25 to 58. Noisy EER rose from 9.16 to 10.15, and the best global logit threshold moved from -0.15 to +2.60. So the exposure hypothesis is refuted in the opposite direction: repeating the 2,922 English bona clips about 6.5 times per epoch looks like memorisation, not a fix for under-exposure.",
+  "went_ok": [
+    "Clean single-factor experiment: all three design expect-regex header lines are present (Sampler balanced ... bona=0.500 en=0.500, CE weights 0.3223/0.6777, Consistency js 0.3). Realised sampler shares were bona 0.499-0.503 and en 0.497-0.503, with the same 75792-step warmup-cosine schedule. Codec counts were 151,570 = 2 x 75,785 every epoch. There was no Traceback, OOM, 'failed (' or Pruned line, and git.diff touches no trainer code.",
+    "Decisive result: the merge CI [-1.46, -0.25] excludes 0, so one ~8 h run (gpu_h 7.98) closes the sampler branch of the plan and the B2-wave C1 follow-up with a clear negative.",
+    "The mechanism worked for Chinese: zh bona drawn 1.66x per clip gave noisy zh bona false alarms 89 -> 78 (merge) and 90 -> 73 (ep8), and zh matched R_bona 84.7 -> 88.2 / 84.0 -> 90.1.",
+    "On the merge the noisy bona share at p>=0.99 fell 17.6 -> 15.7 % and the saturated share of false alarms fell 77 -> 71 %. The final epoch was unchanged (19.8 -> 19.4 %).",
+    "Evaluation was sound: threshold 0.5 on the score files reproduces all six half_B WF1 values. Both readouts were evaluated with loudness_norm -23, and the CI JSONs and registry rows (B3b-sampbal-screen / -ep8) exist."
+  ],
+  "went_wrong": [
+    "English bona got worse, the opposite of the hypothesis. Half_B English R_bona at the merge (ep8): clean 85.6 -> 81.2 (81.8 -> 77.7), matched 67.4 -> 64.3 (65.1 -> 62.0), heldout 62.0 -> 61.2 (62.8 -> 55.8), echo 73.6 -> 65.1. English noisy false alarms went 91 -> 96 (93 -> 106). English bona over the four sets: 13 fixed / 50 broken (merge); on clean, 0 fixed / 21 broken.",
+    "Spoof under-exposure (zh spoof drawn 0.40x): matched R_spoof 99.38 -> 98.07, heldout 99.06 -> 98.32. Noisy spoof misses went 25 -> 58 on the merge, R_spoof rose in only 2 of 63 slice rows, and the minimum slice R_spoof fell 97.02 -> 94.28 (matched snr 0).",
+    "The re-derived CE weights did not keep the operating point. The best global logit moved -0.15 -> +2.60 (merge) and +4.95 -> -1.70 (ep8), the set-specific oracle remainder grew 0.16 -> 0.38 (merge), and clean F1 dropped 0.52 (CI [-0.82, -0.23]). Clean wants fewer spoof calls and noisy wants more.",
+    "Ranking got worse, not just calibration: noisy EER 9.16 -> 10.15 (merge) and 9.01 -> 10.17 (ep8); SNR-0 EER 14.67 -> 17.05 matched and 15.08 -> 18.92 heldout, even though SNR-0 R_bona rose. Even at its best global threshold B3b-top5 (92.58) stays below B3a-top5 at 0.5 (93.06).",
+    "Signs of memorisation and over-fitting: mini heldout R_bona decays 78.1 -> 69.9 over the epochs (B3a 65.8 -> 71.9), train acc reached 99.67 %, and dev loss rose 0.0950 -> 0.1743. The merge lost level robustness: level_flip_bona 0.80 -> 1.74, gain_p10_limit bona flips 2.67 -> 6.95 %."
+  ],
+  "largest_remaining_error": "Confident noisy bona false alarms, half of them English. On the B3a merge (still the reference), 180 of 782 half_B noisy bona are false alarms, 77 % of them at p_spoof >= 0.99, and English carries 91 of 180 from 258 of 782 bona; English heldout R_bona is 62.0 against zh 81.3. B3b shows this is neither under-exposure (6.5x English bona draws made English worse: R_bona 62.0 -> 61.2 heldout, 67.4 -> 64.3 matched, false alarms 91 -> 96) nor the operating point (one global shift recovers 0.02 on the B3a merge). It is a ranking / generalisation error: the saturated core has stayed at 15.7-19.8 % of noisy bona across B3a and B3b, and SNR 0 (B3a merge EER 14.67 / 15.08) is the second axis.",
+  "proposals": [
+    {
+      "rank": 1,
+      "kind": "config",
+      "lever": "consistency_dose",
+      "change": {
+        "set": {
+          "--consistency_lambda": [
+            "1.0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Saturated noisy-bona core and noisy separability. B3a merge: 77 % of 180 noisy false alarms at p>=0.99, noisy EER 9.16. Consistency is the only lever of the wave that moved ranking (B2f -> B3a noisy EER 10.09 -> 9.16).",
+      "hypothesis": "At lambda 0.3 the JS term is 2.5-3.9 % of the loss and JS fell to 0.0038 by epoch 8 in B3a. B3b showed the residual error is neither exposure nor prior, so stronger view invariance is the remaining ranking mechanism. Tripling the weight should reach the saturated core that B3a's movable-band fix left untouched.",
+      "predicted_signature": "Merge vs B3a-top5 (93.06): noisy EER below 9.16; heldout R_bona above 74.94 with R_spoof within 0.5 of 99.38 / 99.06; noisy bona share at p>=0.99 below 17.6 %; JS at epoch 8 below 0.0038; clean F1 within 0.5 of 97.48; best global logit within +-1.",
+      "falsifier": "Wave rule vs B3a-top5 = 93.06: promote if delta > +0.5 with the CI excluding 0 and clean drop <= 0.5; null within +-0.5; negative below -0.5. Delta within +-0.5 together with noisy EER within +-0.3 of 9.16 means B3a's gain came from the paired views / doubled steps, not the divergence weight (keep 0.3). A clean drop > 0.5 means over-regularised."
+    },
+    {
+      "rank": 2,
+      "kind": "config",
+      "lever": "specaug",
+      "change": {
+        "set": {
+          "--specaug": []
+        },
+        "remove": []
+      },
+      "targets": "Memorisation / over-fitting and the English bona generalisation gap. Dev loss rises from epoch 1 (B3a 0.0990 -> 0.1722), B3a mini WF1 falls after epoch 6, and B3b showed English errors grow when the small English bona pool can be memorised (13 fixed / 50 broken).",
+      "hypothesis": "Time / frequency masking blocks clip-specific memorisation without changing the class prior or the draw. English bona, a 2,922-clip pool, and the final epoch's clean bona should then generalise better.",
+      "predicted_signature": "Epoch-8 dev loss below 0.1722 (same CE weights as B3a); mini WF1 not falling over epochs 6-8; half_B English R_bona not below B3a merge's 67.4 matched / 62.0 heldout, and English noisy false alarms below 91; final-epoch clean F1 >= 97.06; best global logit within +-1.",
+      "falsifier": "Wave rule vs B3a-top5 = 93.06 (promote > +0.5 with CI excluding 0 and clean drop <= 0.5; null +-0.5; negative < -0.5). Delta within +-0.5 together with epoch-8 dev loss >= 0.17 means masking does not regularise this backbone. R_spoof down > 0.5 on matched or heldout means masking removes the spoof cue."
+    },
+    {
+      "rank": 3,
+      "kind": "config",
+      "lever": "snr_0_20",
+      "change": {
+        "set": {
+          "--aug_snr_db": [
+            "0",
+            "20"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "SNR-0 slice, the worst SNR axis. B3a-top5 full-set R_bona is 65.81 matched / 65.31 heldout with EER 14.67 / 15.08, against R_bona 85.83 / 79.86 at 20 dB, and training covers only 5-20 dB. B3b bought SNR-0 bona recall only via the threshold (EER rose to 17.05 / 18.92).",
+      "hypothesis": "SNR-0 bona false alarms are out-of-range inputs. Covering 0-5 dB in training improves their ranking (EER), not just the operating point.",
+      "predicted_signature": "Full-set SNR-0 EER below 14.67 / 15.08; SNR-0 R_bona up >= 3 on both sets with R_spoof within 0.5 of 98.65 / 98.50; 15-20 dB R_bona within 2 of 82.57 / 85.83 (matched) and 74.17 / 79.86 (heldout); clean F1 within 0.5 of 97.48.",
+      "falsifier": "Wave rule vs B3a-top5 = 93.06 (promote > +0.5 with CI excluding 0 and clean drop <= 0.5; null +-0.5; negative < -0.5). Delta within +-0.5 together with SNR-0 R_bona within +-3 means SNR range is not the limit. A drop of > 2 R_bona at 15-20 dB means the uniform 0-20 draw diluted the high-SNR mass."
+    },
+    {
+      "rank": 4,
+      "kind": "config",
+      "lever": "codec_random",
+      "change": {
+        "set": {
+          "--aug_codec_profiles": [
+            "random"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Reserved heldout codecs. B3a-top5 full-set R_bona: g726 71.14 and gsm 72.76 (EER 10.74 / 13.91), against g722 81.01; matched opus:qq / opus:wechat R_bona 68.69 / 72.12.",
+      "hypothesis": "Randomised codec parameters widen the training channel distribution, which generalises to the unseen g726 / gsm codecs and the worst opus profiles without seeing them.",
+      "predicted_signature": "Heldout g726 and gsm R_bona up >= 3 with EER below 10.74 / 13.91 and R_spoof within 0.5; heldout F1 above 90.20; matched and clean F1 within 0.5 of 92.12 / 97.48.",
+      "falsifier": "Wave rule vs B3a-top5 = 93.06 (promote > +0.5 with CI excluding 0 and clean drop <= 0.5; null +-0.5; negative < -0.5). Delta within +-0.5 together with g726 / gsm R_bona within +-3 means codec diversity is not the limit."
+    },
+    {
+      "rank": 5,
+      "kind": "seed_repeat",
+      "lever": "seed_repeat_B3a",
+      "change": {
+        "set": {
+          "--seed": [
+            "1235"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Seed band of B3a's +1.08. It is the only above-band gain of the wave and rests on one seed.",
+      "hypothesis": "B3a's consistency gain is real and reproduces across seeds within about +-0.5 of 93.06 on the half_B merge.",
+      "predicted_signature": "Merge half_B WF1 within +-0.5 of 93.06; heldout F1 gain over B2f-top5 (87.92) above +1.5; noisy EER near 9.16.",
+      "falsifier": "A repeat merge below 92.48 (B2f-top5 91.98 + 0.5) means B3a's gain is inside seed noise."
+    }
+  ]
+}

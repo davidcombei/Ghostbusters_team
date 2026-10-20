@@ -1,0 +1,191 @@
+{
+  "code_sha": "d163f934ac7f230cf70603c1c2eb5c51510441f5f2578c5da9dea974a167c92a",
+  "jobs": [
+    {
+      "name": "manifest",
+      "argv": [],
+      "cwd": ".",
+      "check": "manifest",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/manifest.log",
+      "inproc": true,
+      "note": "138 protected files and 2107 run files unchanged",
+      "elapsed_s": 0.1
+    },
+    {
+      "name": "py_compile",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "py_compile",
+        "SLS_setup/b4wave/__init__.py",
+        "SLS_setup/b4wave/augment.py",
+        "SLS_setup/b4wave/checks.py",
+        "SLS_setup/b4wave/data.py",
+        "SLS_setup/b4wave/dsp_apm.py",
+        "SLS_setup/b4wave/dsp_dtx.py",
+        "SLS_setup/b4wave/opus_plc.py",
+        "SLS_setup/b4wave/train.py",
+        "scripts/b4_dsp_slices.py"
+      ],
+      "cwd": ".",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/py_compile.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 300,
+      "started": 1792242737.755158,
+      "jobname": "static:py_compile",
+      "elapsed_s": 1.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    },
+    {
+      "name": "help",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "b4wave.train",
+        "--help"
+      ],
+      "cwd": "SLS_setup",
+      "check": "help",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/help.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 300,
+      "started": 1792242738.7678943,
+      "jobname": "static:help",
+      "elapsed_s": 30.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "all lever flags present"
+    },
+    {
+      "name": "checks_cpu",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "b4wave.checks",
+        "cpu"
+      ],
+      "cwd": "SLS_setup",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/checks_cpu.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 900.0,
+      "started": 1792242768.8176732,
+      "jobname": "static:checks_cpu",
+      "elapsed_s": 300.5,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    },
+    {
+      "name": "base_checks_all",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "b3wave.checks",
+        "all"
+      ],
+      "cwd": "SLS_setup",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/base_checks_all.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 900.0,
+      "env_check": true,
+      "started": 1792243069.3217819,
+      "jobname": "static:base_checks_all",
+      "elapsed_s": 30.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    },
+    {
+      "name": "exploop_test_lib",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "/root/repos/rtc-sdd/Ghostbusters_team/scripts/exploop/tests",
+        "-p",
+        "test_lib.py"
+      ],
+      "cwd": ".",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/exploop_test_lib.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 600,
+      "env_check": true,
+      "started": 1792243099.3583255,
+      "jobname": "static:exploop_test_lib",
+      "elapsed_s": 30.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    },
+    {
+      "name": "exploop_test_view",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "/root/repos/rtc-sdd/Ghostbusters_team/scripts/exploop/tests",
+        "-p",
+        "test_view.py"
+      ],
+      "cwd": ".",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/static/exploop_test_view.log",
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1"
+      },
+      "timeout_s": 600,
+      "env_check": true,
+      "started": 1792243129.3869264,
+      "jobname": "static:exploop_test_view",
+      "elapsed_s": 30.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    }
+  ],
+  "idx": 7,
+  "done": true,
+  "started": 1792242737.6788497,
+  "started_ts": "2026-10-17 16:12:17",
+  "finished_ts": "2026-10-17 16:19:19",
+  "ok": true
+}

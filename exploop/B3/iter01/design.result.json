@@ -1,0 +1,37 @@
+{
+  "iter": 1,
+  "letter": "a",
+  "track": "B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234",
+  "lever_slug": "cjs03",
+  "kind": "config",
+  "base_label": "B2f",
+  "change": {
+    "set": {
+      "--consistency": [
+        "js"
+      ],
+      "--consistency_lambda": [
+        "0.3"
+      ],
+      "--consistency_pairs": [
+        "both"
+      ],
+      "--batch_size": [
+        "8"
+      ]
+    },
+    "remove": []
+  },
+  "change_vs_ref": "+ --consistency js --consistency_lambda 0.3 --consistency_pairs both (--batch_size 8 = 8 pairs = 16 clips/step)",
+  "rationale": "highest-evidence lever in the roadmap (T3.1, P0); attacks the dominant residual error (noisy bona scored as spoof, a separability problem)",
+  "hypothesis": "making the offline/online RTC twins and independently augmented views agree in output makes the decision invariant to channel / noise / codec nuisance",
+  "predicted_signature": "noisy EER down, noise_only bona->spoof down, heldout / matched bona recall up, clean flat",
+  "falsifier": "delta top-5-merge half_B WF1 vs B2f merge > +0.5 with the paired-bootstrap CI excluding 0 and clean F1 drop <= 0.5 -> promote; within +-0.5 -> null; below -0.5 -> negative",
+  "eval_note": "evaluate with --loudness_norm --loudness_norm_lufs -23; checkpoints are plain ModelSLS state_dicts",
+  "header_text": "",
+  "expect": [
+    "^Consistency: js lambda_js=0.3"
+  ],
+  "expected_hours": 8,
+  "adopted": true
+}

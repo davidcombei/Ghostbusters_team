@@ -1,0 +1,34 @@
+metrics: SLS_setup/exp/B4b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_opusplc03_s1234_epoch8_bs16_20261018201137/local_eval/epoch_8/metrics.json
+
+  id                  B4b-opusplc-ep8
+  date                2026-10-19
+  owner               tmarchitan
+  git_sha             8ea996c+dirty
+  config_hash         65141a59f7
+  model               SLS_setup/exp/B4b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_opusplc03_s1234_epoch8_bs16_20261018201137/ckpt/epoch_8_dev_loss_0.141961.pth
+  change_vs_ref       + --aug_opus_plc_p 0.3 (in-process libopus round trip with Gilbert-Elliott loss and decoder PLC on 30% of codec calls; --aug_opus_loss 0.01 0.20 and --aug_opus_burst 1 4 left at default)
+  clean_f1            97.71
+  matched_f1          91.74
+  heldout_f1          89.23
+  echo_f1             94.61
+  wf1@0.5             92.65
+  wf1@oracle          92.83
+  eer_clean           3.10
+  eer_matched         8.82
+  eer_heldout         11.60
+  eer_echo            6.00
+  recall_spoof_noisy  99.06
+  recall_bona_noisy   75.67
+  progress_score      
+  gpu_h               3.55
+  decision            revisit
+  notes               exploop wave B4 iteration 2 (final readout); verdict: null (inside +-0.5); report: docs/experiments-exploration/b4-experiments/20261019_001203_B4b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_opusplc03_s1234.md
+  seed                1234
+  half_b_wf1          92.26
+  ci_low              
+  ci_high             
+
+vs B2f-loudnorm-ep8:  half_B WF1 +0.12   full WF1 +0.12   clean F1 +0.02   matched +0.06   heldout +0.27   echo +0.32
+Decision rule (next_steps_plan.md): promote only if the paired-bootstrap 95% CI of dWF1 (half_B) excludes 0 and clean F1 drops by <= 0.5; otherwise 'no effect'.
+
+(dry run: nothing written)

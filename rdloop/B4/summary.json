@@ -1,0 +1,179 @@
+{
+  "report_path": "rdloop/B4/FINAL_SUMMARY.md",
+  "headline": "B4 built b4wave with three flag-gated platform-DSP augmentation levers. They are WebRTC NS (apm_ns), webrtcvad DTX gating (dtx_gate) and libopus packet loss + PLC (opus_plc), plus a mechanism readout calibrated on a 9-run null panel. All static, regression, smoke and compat checks pass. B2f re-scores with max |dlogit| 0, and levers-off matches the base trainer exactly with the augmenter off. The recommended wave is ~14 h. One owner decision is pending: dtx_gate under-doses its target (smoke dose ratio ~0.027 vs the 0.25 rule).",
+  "status": "ready",
+  "levers": [
+    {
+      "id": "apm_ns",
+      "flags": [
+        "--aug_apm_p 0.0 -> 0.3",
+        "--aug_apm_ns_levels 6 12 18 21 (unchanged)"
+      ],
+      "gap_ids": [
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2607.17761",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://arxiv.org/abs/2603.14033",
+        "https://github.com/strands-labs/pywebrtc-audio"
+      ],
+      "regression": "Shared regression passes. B2f re-scored on 5 sets: max |dlogit| 0, 0 flips, metric diffs 0. Levers-off micro-run (augmenter off in both) has rel diff 0.0000 / 0.0000. lever_forward_backward(apm_ns) PASS. checks cpu 126/126 (incl. the equivalence item-3 identity-stub test).",
+      "smoke": "PASS (tests/facts.json): time x 1.126 vs levers-off, peak 9.94 GiB (= S0), projected 4.66 h. wrtc_ns on 218/758 codec calls = 0.288 (bona 0.306, spoof 0.283; computed from tests/smoke/S_apm_ns.log), no fail counters, selftest PASS (no_hpf -0.09..-0.92 dB, aligned lag 0).",
+      "notes": "Standalone pywebrtc_audio NoiseSuppressor, NS only (no HPF/AGC/AEC; verified at source by the critic). 96-sample latency compensation added. apm_balance max |bona-spoof| 0.30 dB. Mechanism 'shown' bar NS DiD <= -0.22, refuted at >= +0.32. Lower-p retry only if shown without the run-anomaly flag."
+    },
+    {
+      "id": "dtx_gate",
+      "flags": [
+        "--aug_dtx_p 0.0 -> 0.3",
+        "--aug_dtx_fill mix (unchanged)"
+      ],
+      "gap_ids": [
+        "G3",
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2309.11827",
+        "https://arxiv.org/abs/2309.11827",
+        "https://arxiv.org/abs/2106.12914",
+        "https://arxiv.org/html/2607.17761",
+        "https://github.com/wiseman/py-webrtcvad"
+      ],
+      "regression": "Shared regression passes (see apm_ns). lever_forward_backward(dtx_gate) PASS. dtx_balance no WARN. checks cpu 126/126.",
+      "smoke": "PASS (tests/facts.json): time x 0.928, peak 9.94 GiB, projected 3.84 h. wrtc_dtx on 233/758 = 0.307 (bona 0.306, spoof 0.308). Gated bins g0 105 / g1_20 126 / g20_40 2 / g40p 0, so the >=20%-gated share is 0.0086 and the dose ratio ~0.027 vs the 0.25 rule (computed from tests/smoke/S_dtx_gate.log).",
+      "notes": "UNDER-DOSED (review F1.1 major, fixed in the readout only). A null arm reads 'inconclusive (under-dosed)', never 'refuted'. The dose ratio counts processed clips only, so --aug_dtx_p cannot fix it; a dose variant (hangover / mode) is a code change. Open minor F2.1: escape metric WF1 vs heldout F1."
+    },
+    {
+      "id": "opus_plc",
+      "flags": [
+        "--aug_opus_plc_p 0.0 -> 0.3",
+        "--aug_opus_loss 0.01 0.20 (unchanged)",
+        "--aug_opus_burst 1.0 4.0 (unchanged)"
+      ],
+      "gap_ids": [
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2504.12423v2",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://github.com/orion-labs/opuslib",
+        "https://github.com/orion-labs/opuslib/blob/master/opuslib/classes.py",
+        "https://arxiv.org/abs/2107.12018"
+      ],
+      "regression": "Shared regression passes. codec_draw_order bit-identical (1,000 start states + 14 real ffmpeg calls). Encoder packets byte-identical to ffmpeg's (21/21). lever_forward_backward(opus_plc) PASS. checks cpu 126/126.",
+      "smoke": "PASS (tests/facts.json): time x 0.913, peak 9.94 GiB, projected 3.78 h. opus_plc on 235/758 = 0.310 (bona 0.285, spoof 0.316); loss bins 47 / 61 / 127; no fail counters (computed from tests/smoke/S_opus_plc.log).",
+      "notes": "Weak local premise: the mechanism is capped at 'directional' and the lever is decided on the WF1 CI rule plus guards. A zero-loss control (--aug_opus_loss 0 0) runs only if positive. The zero-loss attribution passes per profile (pooled) but fails per clip on Train_038736 (qq 14.78, wechat 12.96 dB). ~69-sample ffmpeg pre-skip offset. ~383 code lines, near the 400 cap. A container restart can wipe system libopus; start-up then raises."
+    }
+  ],
+  "dropped": [
+    {
+      "id": "I4_augmix",
+      "stage": "debate (not proposed)",
+      "reason": "Raises effective SNR by ~8.7 dB; vision-only evidence (plan_agreed.md section 4)"
+    },
+    {
+      "id": "I5_echo_suite",
+      "stage": "debate (not proposed)",
+      "reason": "It is the sim_echo_v1 recipe, which is not in WF1 (plan_agreed.md section 4)"
+    },
+    {
+      "id": "I6_deepaugment_dfn",
+      "stage": "debate (not proposed)",
+      "reason": "Vision-only evidence, not installed, CPU risk at ~90% of quota (plan_agreed.md section 4)"
+    },
+    {
+      "id": "apm_ns_agc2_hpf",
+      "stage": "debate",
+      "reason": "Second component. O1.1: the webrtc-noise-gain backend forced HPF, so the plan switched to the pywebrtc-audio NS-only backend"
+    },
+    {
+      "id": "dtx_pause_insertion_and_libopus_dtx",
+      "stage": "debate",
+      "reason": "Rhythm component (agate reserved). libopus DTX fired on 7.1% of bona vs 1.2% of spoof frames"
+    },
+    {
+      "id": "opus_fec_and_16k_decode",
+      "stage": "debate",
+      "reason": "FEC is a second decoder component. 16 kHz decode replaced by 48 kHz + resample to match ffmpeg (O1.9)"
+    },
+    {
+      "id": "opus_plc_G2_target",
+      "stage": "debate",
+      "reason": "Matched has no packet loss, so nothing predicts a G2 gain (O1.3)"
+    },
+    {
+      "id": "opus_plc_dose_response_signature",
+      "stage": "debate",
+      "reason": "No dose-dependent deficit to close; kept as a report-only table"
+    },
+    {
+      "id": "b2f_replicate_arm",
+      "stage": "gate",
+      "reason": "Critic's optional alternative; not in the owner-approved lever list"
+    },
+    {
+      "id": "two_view_consistency_variants",
+      "stage": "scout",
+      "reason": "Two views double the epoch, over the 1.3x cap; a loss, not augmentation"
+    },
+    {
+      "id": "codec_zoo",
+      "stage": "scout",
+      "reason": "Adjacent to the exhausted B3d (-2.20); G.7xx/GSM/speex reserved"
+    },
+    {
+      "id": "bandlimit_resample8k_aug",
+      "stage": "scout",
+      "reason": "Reserved held-out filters"
+    },
+    {
+      "id": "se_preproc_neural_codec_babble",
+      "stage": "scout",
+      "reason": "Rule status ask / likely-allowed; label-noise risk"
+    },
+    {
+      "id": "noise_pool_expansion",
+      "stage": "scout",
+      "reason": "Data task, not a code lever; no ADD-specific evidence"
+    },
+    {
+      "id": "snr_chaining_rawboost_specaug",
+      "stage": "scout",
+      "reason": "Flags already exist in b3wave, so exploop can screen them; range widening exhausted"
+    },
+    {
+      "id": "rhythm_copysynth_proteus_speechmask",
+      "stage": "scout",
+      "reason": "New spoofs forbidden; needs an offline policy loop; speech-mask keeps the shortcut"
+    }
+  ],
+  "recommended_wave": {
+    "name": "B4",
+    "order": [
+      "apm_ns",
+      "opus_plc",
+      "dtx_gate"
+    ],
+    "expected_hours": 14,
+    "notes": "Training 12.28 h from the smoke projections (4.66 + 3.78 + 3.84, tests/facts.json) plus ~0.6 h eval and analysis per arm (B3a timing in exploop/B3/events.jsonl). Each arm is one flag off B2f at --batch_size 16 with the b4wave.train entry; rules are band +-0.5, promote = CI low > 0 and clean drop <= 0.5. The analyst runs scripts/b4_dsp_slices.py per arm and readout with --ref B2f, --placebo <other arms> and --lever, and the wave SUMMARY re-runs it with --summary to issue final verdicts. dtx_gate goes last so the owner can decide its dose; as built it can show but not refute the mechanism, and it still serves as a placebo arm. The opus_plc zero-loss control (~3.8 h) runs only if opus_plc is positive on WF1. Optional B2f replicate arm ~4.1 h. Smoke is 'off' in the seed, which is valid only for code sha d163f934; any code change needs a new smoke."
+  },
+  "owner_questions": [
+    "dtx_gate: run as built (expected 'inconclusive (under-dosed)'; still a placebo arm), or commission a higher-dose code variant first (e.g. hangover U(0,200) ms or a forced aggressive mode)? Raising --aug_dtx_p does not change the dose ratio.",
+    "Add the critic's optional B2f replicate arm (b4wave, all levers off, ~4.1 h) as the same-config null and extra placebo?",
+    "F2.1: confirm the dtx_gate falsifier (1) escape metric: WF1 (plan text, implemented) or heldout F1 (O3.2 wording)?",
+    "Accept the per-profile (pooled) reading of the opus_plc zero-loss attribution check (one clip below 15 dB per clip)?",
+    "Wave order: apm_ns -> opus_plc -> dtx_gate (recommended) or the seed order apm_ns -> dtx_gate -> opus_plc?",
+    "Install conda-forge libopus in rtc-sdd before the wave to harden opus_plc against container restarts?"
+  ],
+  "risks": [
+    "dtx_gate is structurally under-dosed: smoke 2/233 clips >=20% gated (dose ratio ~0.027 vs the 0.25 rule); even forced mode 3 gates a mean 0.082/0.069 vs a held-out mean of 0.233. A null arm cannot refute the mechanism.",
+    "Promotion needs spill-over: ~14 fewer noisy bona FA are needed to clear the +-0.5 band, while the per-lever stage deficits are 10.8 / 3.9 / 2.4+3.3 clips. Heldout F1 panel SD is 1.35, so single-seed outcome deltas below ~1 point are within cross-run spread.",
+    "B3 lesson 4: harder input-side augmentation cut the late fit. Guarded by the shared under-fit falsifier, but untested on B2f without consistency.",
+    "Placebo rule (e) depends on all three arms running. Verdicts are capped at 'directional' with 0 placebo arms, and there is no same-config B2f replicate.",
+    "opus_plc: the zero-loss attribution passes only per profile (per-clip qq 14.78 / wechat 12.96 dB), and there is a ~69-sample ffmpeg pre-skip offset; both are covered by the zero-loss control arm. LOC (~383) is near the 400 cap.",
+    "A container restart wipes system ffmpeg and libopus. opus_plc then raises at start-up; the wave preflight reinstalls ffmpeg.",
+    "Smoke time factors are noisy (dtx 0.928 and opus 0.913 below 1; apm 1.126 vs a CPU projection of 1.012-1.049), and the 1% smoke losses differ between passes of the same config (pid-seeded augmenter RNG, hypothesis).",
+    "The first GPU pass was blocked: R1_old_scores 'local_eval exited 1' with no recorded cause, and the augmenter-on equivalence failed. The re-run passed, with the equivalence now augmenter-off. The manifest was re-baselined by the owner at both unblocks.",
+    "B2f is not the numerically best run (B3a 93.06/92.94 at 7.87 GPU-h). Gains on B2f may not transfer, and stacking consistency breaks the 1.3x epoch cap."
+  ]
+}

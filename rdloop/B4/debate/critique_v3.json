@@ -1,0 +1,103 @@
+{
+  "version": 3,
+  "report_path": "rdloop/B4/debate/critique_v3.md",
+  "headline": "v3: 0 blocker / 0 major / 3 new minor; O2.1-O2.4 resolved. Every panel, tertile and outcome number reproduces, and a leave-one-out check gives no false 'shown' on any of the 9 panel runs. The pywebrtc NoiseSuppressor has no HPF at source level. Verdict: agree.",
+  "objections": [
+    {
+      "id": "O3.1",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "eval",
+      "claim": "'Shown' is not conditioned on run health, and a failed run passes it. (a)-(d) compare DiDs only, and placebo (e) cannot catch a single broken arm. Evaluated leave-one-out against the 9-run panel, the failed B2a has NS DiD -1.42 (z -6.38) and passes (a), (c) and (d), while its half-B WF1 is 85.18. It is also far off on the non-target VAD contrast (z +5.11). apm_ns falsifier (2) grants a lower-p retry exactly when WF1 drops and NS is 'shown', and the section 4 combined-run recommendation keys on 'shown'.",
+      "evidence": [
+        "computed /tmp/b4crit3/panel3.py (LOO): B2a NS z -6.38, a=c=d=True; VAD z +5.11",
+        "SLS_setup/exp/B2a_qwen17_rtc_musan_lvl_cos8_s1234_epoch8_bs16_20261007231952/local_eval/epoch_8/metrics.json: half_B wf1 0.8518, sim_heldout_v1 f1 0.7985",
+        "rdloop/B4/debate/proposal_v3.md:350-351 (retry only if shown), :609-615 (section 4 keys on shown), :118-121 (placebo rule)"
+      ],
+      "required_change": "In b4_dsp_slices.py, print the arm's z on every contrast. Flag the run 'anomalous' if |z| > 3 on a non-target primary contrast, or if the shared under-fit falsifier or the clean-F1 guard fires. While flagged, report the lever verdict as 'confounded (run anomaly)' instead of 'shown'. The apm_ns lower-p retry then requires 'shown' without the flag."
+    },
+    {
+      "id": "O3.2",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "eval",
+      "claim": "The outcome thresholds that let an arm escape falsifier (1) are inside cross-run noise. The heldout-F1 thresholds +0.5 / +0.8 are B2f-referenced, with z about 0.4 / 0.6 on the panel SD of 1.35 that v3 itself states. Against B2f, 5/9 panel runs reach +0.5 on final, 6/9 on merge, 6/9 on at least one readout, and 4/9 reach +0.8 on final. Even the one-flag B2e reads +0.12 / +0.58. So falsifier (1) of apm_ns and opus_plc fires for a null arm only about 1 time in 6, and the section 4 'opus_plc directional with positive outcome' path is weak evidence. The panel mixes config effects with noise, so it bounds the null rather than measuring it.",
+      "evidence": [
+        "computed from the 9 runs' local_eval/{epoch_8|epoch_10,merge_top5}/metrics.json half_B.sets.sim_heldout_v1.f1: final delta vs 88.27 = -2.14,+1.19,-0.07,+0.12,+2.05,+0.89,+0.59,-1.59,+1.07; merge delta vs 87.92 = -2.11,+1.06,-0.01,+0.58,+2.28,+1.48,+0.63,-1.56,+0.60",
+        "rdloop/B4/debate/proposal_v3.md:140-142, :343, :348-349, :546, :552-553, :611-613"
+      ],
+      "required_change": "Print the panel SD and the count of panel runs clearing each heldout-F1 threshold. In falsifier (1), an arm escapes on outcome only with heldout F1 delta >= +0.5 on both readouts (opus_plc: name the readouts). For the section 4 recommendation, define 'positive outcome' as the wave's WF1 CI rule, not heldout F1 alone."
+    },
+    {
+      "id": "O3.3",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "eval",
+      "claim": "Placebo rule (e) has no rule for a missing arm. Verdicts stay provisional until all B4 arms are read, but two arms depend on owner-installed packages, and apm_ns has a 1.15 timing stop rule. An arm that never runs leaves (e) undefined.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v3.md:125-126 (provisional until all arms read), :200-201 (apm stop rule)",
+        "rdloop/B4/debate/lint_v3.json: needs_user apm_ns [pywebrtc_audio], dtx_gate [webrtcvad]"
+      ],
+      "required_change": "At SUMMARY, evaluate (e) on the arms that exist, plus the opus_plc zero-loss control if it ran. With no placebo arm, cap the verdict at 'directional'. Print the placebo count next to each verdict."
+    }
+  ],
+  "resolved": [
+    "O2.1",
+    "O2.2",
+    "O2.3",
+    "O2.4"
+  ],
+  "still_open": [],
+  "per_lever": [
+    {
+      "lever_id": "apm_ns",
+      "stance": "keep",
+      "note": "The NS-only backend is confirmed at source level: webrtc::NoiseSuppressor + AudioBuffer, with no HPF. It has the best-powered contrast (bar -0.22, 46 % of the typical gap). The selftest is robust, and its no-HPF band is correctly chosen (an 80 Hz HPF reads 5.00 dB there). Add the run-anomaly flag (O3.1), because its lower-p retry keys on 'shown'."
+    },
+    {
+      "lever_id": "dtx_gate",
+      "stance": "keep",
+      "note": "Criterion (ii) is the best-calibrated test in the plan: no null run passes it, and it is reproduced with the pinned cuts (panel mu -10.2 / max 0). The VAD contrast is honestly demoted to 'directional', with the fill split pre-registered. (ii) needs about a 15-clip differential shift (z +2.6 from the panel mean), so a modest real effect may read 'inconclusive'."
+    },
+    {
+      "lever_id": "opus_plc",
+      "stance": "keep",
+      "note": "The weak local premise is stated honestly, and the mechanism is capped at 'directional'. The arm is an outcome test of ADD-C with a zero-loss attribution control. Its outcome escape from falsifier (1) is noisy (O3.2). The cost reduction (0.85 projected) and the codec_draw_order / fallback bit-identity tests are good."
+    }
+  ],
+  "alternatives": [
+    {
+      "idea": "Owner-optional fourth arm: a B2f replicate (b4wave entry, all B4 flags off, same argv, about 4.4 h). It is the only same-config null for the three contrasts and for heldout F1 / WF1, the strongest placebo for (e), and a full-scale end-to-end check of the default-off path. The parent augmenter RNG is pid-seeded, so it is a genuine retrain, not a bit-replay.",
+      "why": "Addresses O3.2 at the root: the 9-run panel mixes config effects with noise, and no same-config replicate of B2f exists. Not required; the cost is one extra arm.",
+      "idea_ids": []
+    }
+  ],
+  "citation_checks": [
+    {
+      "url": "https://raw.githubusercontent.com/strands-labs/pywebrtc-audio/main/bindings/webrtc_audio_bindings.cpp",
+      "ok": true,
+      "note": "NoiseSuppressor wraps std::unique_ptr<webrtc::NoiseSuppressor> + AudioBuffer, with config.target_level = static_cast<NsConfig::SuppressionLevel>(level) and the error text 'level must be 0-3 (6/12/18/21 dB)'. HighPassFilter is created only in AudioProcessor (if hp_enabled_ || aec_enabled_) and EchoCanceller, so the NS-only path has no HPF."
+    },
+    {
+      "url": "https://github.com/strands-labs/pywebrtc-audio",
+      "ok": true,
+      "note": "process() takes audio 'of any length' and 'Internally splits into 10ms frames'. HPF appears only as an AudioProcessor option ('also enabled automatically with AEC')."
+    },
+    {
+      "url": "https://github.com/wiseman/py-webrtcvad",
+      "ok": true,
+      "note": "'A frame must be either 10, 20, or 30 ms in duration' and '3 is the most aggressive' match. Sample rates are 8/16/32/48 kHz."
+    },
+    {
+      "url": "https://arxiv.org/html/2607.17761",
+      "ok": true,
+      "note": "Section 4.4: 'The Mix strategy partially alleviates the degradation, yet still suffers noticeable performance drops under more severe distortions (e.g., AGC and VAD)'. Order AEC -> NS -> AGC -> VAD. Table 2 XLSR-AASIST clean-only 0.23/22.20, Mix 0.52/17.39. v3's 'last front-end stage' wording is accurate."
+    },
+    {
+      "url": "https://arxiv.org/abs/2107.12018",
+      "ok": true,
+      "note": "UR21 channel-robust ASVspoof 2021 system: codec / transmission and IR augmentation. The abstract does not mention packet loss. v3 cites it without a specific claim, so it is acceptable as background only."
+    }
+  ],
+  "verdict": "agree"
+}

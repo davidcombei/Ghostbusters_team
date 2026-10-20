@@ -1,0 +1,47 @@
+{
+  "merge": {
+    "run": 93.05618353351335,
+    "base": 91.97880641320396,
+    "delta": 1.077377120309393,
+    "ci_low": 0.518028201906214,
+    "ci_high": 1.6680022268861796,
+    "clean_drop": 0.11957519224326063,
+    "new_best": true,
+    "decision": "promote",
+    "verdict": "positive",
+    "readout": "SLS_setup/exp/B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234_epoch8_bs8_20261009214846/local_eval/merge_top5",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5",
+    "base_label": "B2f-top5",
+    "label": "B3a-top5"
+  },
+  "final": {
+    "run": 92.94058874557216,
+    "base": 92.13685698540242,
+    "delta": 0.8037317601697396,
+    "ci_low": 0.21590309146058556,
+    "ci_high": 1.4240957065638762,
+    "clean_drop": 0.6303024637734467,
+    "new_best": true,
+    "decision": "revisit",
+    "verdict": "above band, clean F1 dropped",
+    "readout": "SLS_setup/exp/B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234_epoch8_bs8_20261009214846/local_eval/epoch_8",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8",
+    "base_label": "B2f-ep8",
+    "label": "B3a-ep8"
+  },
+  "objective": "half_B.wf1.wf1",
+  "rules": {
+    "new_best_delta": 0.0,
+    "band": 0.5,
+    "promote": {
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "positive": {
+      "delta_gt": 0.5,
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    }
+  },
+  "written": "2026-10-10 14:30:58"
+}

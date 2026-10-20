@@ -1,0 +1,92 @@
+{
+  "scores": {
+    "ok": true,
+    "sets": {
+      "dev_online_clean": {
+        "ok": true,
+        "n": 7465,
+        "n_old": 7465,
+        "n_new": 7465,
+        "max_abs_logit_diff": 0.0,
+        "flips_at_0.5": 0
+      },
+      "sim_matched_v1": {
+        "ok": true,
+        "n": 4000,
+        "n_old": 4000,
+        "n_new": 4000,
+        "max_abs_logit_diff": 0.0,
+        "flips_at_0.5": 0
+      },
+      "sim_heldout_v1": {
+        "ok": true,
+        "n": 4000,
+        "n_old": 4000,
+        "n_new": 4000,
+        "max_abs_logit_diff": 0.0,
+        "flips_at_0.5": 0
+      },
+      "probe_orig": {
+        "ok": true,
+        "n": 1000,
+        "n_old": 1000,
+        "n_new": 1000,
+        "max_abs_logit_diff": 0.0,
+        "flips_at_0.5": 0
+      },
+      "probe_noise_only": {
+        "ok": true,
+        "n": 1000,
+        "n_old": 1000,
+        "n_new": 1000,
+        "max_abs_logit_diff": 0.0,
+        "flips_at_0.5": 0
+      }
+    }
+  },
+  "metrics": {
+    "ok": true,
+    "sets": {
+      "dev_online_clean": {
+        "ok": true,
+        "abs_diff": {
+          "f1": 0.0,
+          "eer": 0.0,
+          "recall_bona": 0.0
+        }
+      },
+      "sim_matched_v1": {
+        "ok": true,
+        "abs_diff": {
+          "f1": 0.0,
+          "eer": 0.0,
+          "recall_bona": 0.0
+        }
+      },
+      "sim_heldout_v1": {
+        "ok": true,
+        "abs_diff": {
+          "f1": 0.0,
+          "eer": 0.0,
+          "recall_bona": 0.0
+        }
+      },
+      "probe_orig": {
+        "ok": true,
+        "abs_diff": {
+          "f1": 0.0,
+          "eer": 0.0,
+          "recall_bona": 0.0
+        }
+      },
+      "probe_noise_only": {
+        "ok": true,
+        "abs_diff": {
+          "f1": 0.0,
+          "eer": 0.0,
+          "recall_bona": 0.0
+        }
+      }
+    }
+  }
+}

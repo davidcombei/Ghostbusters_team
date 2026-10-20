@@ -1,0 +1,34 @@
+metrics: SLS_setup/exp/B3d_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_codecrand_s1234_epoch8_bs8_20261011081946/local_eval/merge_top5/metrics.json
+
+  id                  B3d-codecrand-screen
+  date                2026-10-11
+  owner               tmarchitan
+  git_sha             df3dff2+dirty
+  config_hash         ed29d79b12
+  model               merge:SLS_setup/exp/B3d_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_codecrand_s1234_epoch8_bs8_20261011081946/top5_by_wf1/merge_list.txt
+  change_vs_ref       + --aug_codec_profiles random (per-clip random Opus bitrate {6,8,12,16,24} kbps / frame {20,40,60} ms / VBR mode / packet-loss hint; everything else identical to B3a, incl. --consistency js --consistency_lambda 0.3 --consistency_pairs both --batch_size 8)
+  clean_f1            96.66
+  matched_f1          89.99
+  heldout_f1          86.04
+  echo_f1             93.11
+  wf1@0.5             90.61
+  wf1@oracle          91.78
+  eer_clean           3.92
+  eer_matched         10.37
+  eer_heldout         12.50
+  eer_echo            7.46
+  recall_spoof_noisy  99.12
+  recall_bona_noisy   69.20
+  progress_score      
+  gpu_h               7.79
+  decision            drop
+  notes               exploop wave B3 iteration 4 (merge readout); verdict: negative; report: docs/experiments-exploration/b3-experiments/20261011_163014_B3d_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_codecrand_s1234.md
+  seed                1234
+  half_b_wf1          90.86
+  ci_low              
+  ci_high             
+
+vs B3a-cjs03-screen:  half_B WF1 -2.20   full WF1 -2.44   clean F1 -0.82   matched -2.29   heldout -3.98   echo -1.50
+Decision rule (next_steps_plan.md): promote only if the paired-bootstrap 95% CI of dWF1 (half_B) excludes 0 and clean F1 drops by <= 0.5; otherwise 'no effect'.
+
+(dry run: nothing written)

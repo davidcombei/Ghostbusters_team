@@ -1,0 +1,34 @@
+metrics: SLS_setup/exp/B3b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_sampbal_s1234_epoch8_bs8_20261010145615/local_eval/merge_top5/metrics.json
+
+  id                  B3b-sampbal-screen
+  date                2026-10-10
+  owner               tmarchitan
+  git_sha             df3dff2+dirty
+  config_hash         d618e71b2f
+  model               merge:SLS_setup/exp/B3b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_sampbal_s1234_epoch8_bs8_20261010145615/top5_by_wf1/merge_list.txt
+  change_vs_ref       + --sampler balanced --sampler_lang_balance --sampler_bona_frac 0.5 --ce_weights 0.3223 0.6777 (coupled sampler group; CE re-derived to keep the 0.1/0.9 effective class prior)
+  clean_f1            96.96
+  matched_f1          91.52
+  heldout_f1          89.25
+  echo_f1             93.92
+  wf1@0.5             92.36
+  wf1@oracle          92.86
+  eer_clean           3.51
+  eer_matched         9.65
+  eer_heldout         11.46
+  eer_echo            5.87
+  recall_spoof_noisy  98.15
+  recall_bona_noisy   78.47
+  progress_score      
+  gpu_h               7.98
+  decision            drop
+  notes               exploop wave B3 iteration 2 (merge readout); verdict: negative; report: docs/experiments-exploration/b3-experiments/20261010_231745_B3b_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_sampbal_s1234.md
+  seed                1234
+  half_b_wf1          92.23
+  ci_low              
+  ci_high             
+
+vs B3a-cjs03-screen:  half_B WF1 -0.83   full WF1 -0.69   clean F1 -0.52   matched -0.76   heldout -0.77   echo -0.69
+Decision rule (next_steps_plan.md): promote only if the paired-bootstrap 95% CI of dWF1 (half_B) excludes 0 and clean F1 drops by <= 0.5; otherwise 'no effect'.
+
+Row 'B3b-sampbal-screen' appended in /root/repos/rtc-sdd/Ghostbusters_team/docs/experiment_log.csv

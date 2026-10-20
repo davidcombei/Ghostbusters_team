@@ -1,0 +1,104 @@
+{
+  "report_path": "docs/experiments-exploration/b3-experiments/20261012_010655_B3e_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_snr0to20_s1234.md",
+  "headline": "B3e (B3a + --aug_snr_db 0 20) is negative on both readouts and is not a new best (verdict.json: decision drop, verdict negative, new_best false). Merge half_B WF1 is 91.99 vs B3a-top5 93.06, delta -1.0644512345820942, CI [-1.6519077179139843, -0.4863646902834367], clean_drop 0.5636644068549543. Final epoch is 92.36 vs 92.94, delta -0.5805695066224956, CI [-1.1327474070824266, -0.04929360958760198]. All four sets lost. Heldout lost most: F1 90.20 -> 88.52 [-2.93, -0.49], R_bona 74.94 -> 69.31, carrying 55 % of the merge loss. The target, SNR 0, did not improve: matched R_bona 65.81 -> 68.38 (+2.56, below the predicted +3), heldout SNR-0 R_bona 65.31 -> 61.22 with EER 15.08 -> 18.92. half_B noisy bona false alarms rose 180 -> 212 (SNR 0: 40 -> 44), spread over every SNR. Spoof recall held. Training fit weakened as training went on: CE 1.06x B3a's at epoch 1, 1.51x at epoch 8 (0.0426 vs 0.0283). This is a milder version of B3d's under-fit. On the selection half A the loss is only -0.49 / -0.20. The reference stays B3a, and this was iteration 5 of 5.",
+  "went_ok": [
+    "Clean single-flag run: only aug_snr_db (and track) differ in config.yaml args, all 6 header regexes matched (SNR: 0..20 dB dist=uniform ...), noise-stage share 0.5996-0.6015 of views vs the derived 0.600, 0 Traceback/OOM/failed lines, no trainer code in git.diff, 7 h 43 min (gpu_h 7.73)",
+    "Spoof cue intact (falsifier 3 cleanly excluded): half_B R_spoof heldout 99.06 -> 99.50, matched 99.38 -> 99.44; full-set SNR-0 R_spoof 98.48 / 98.95 vs 98.65 / 98.50; noisy spoof misses 25 -> 17 (merge)",
+    "In-pool 0 dB moved the predicted way, weakly: matched SNR-0 R_bona 65.81 -> 68.38, F1@oracle 86.84 -> 87.88; SNR-10 EER improved on both sets (7.41 -> 6.53, 10.29 -> 8.57)",
+    "Small perturbation compared with B3d: logit correlation with B3a 0.977-0.992 (merge), loss about half of B3d's, half-A deltas -0.49 / -0.20 inside the band; ep8 clean drop only 0.09 with clean EER 3.20 -> 2.43",
+    "Epoch-1 under-fit guard held (train acc 89.26 vs 90.16, CE 0.4165 vs 0.3945): no B3d-style collapse"
+  ],
+  "went_wrong": [
+    "Merge half_B WF1 -1.06 [-1.65, -0.49] and final -0.58 [-1.13, -0.05] vs B3a; every per-set point estimate negative; clean (-0.56 [-0.87, -0.26]) and heldout (-1.68 [-2.93, -0.49]) CIs exclude 0 on the merge",
+    "Target missed: heldout SNR-0 R_bona 65.31 -> 61.22 and EER 15.08 -> 18.92; half_B SNR-0 false alarms 40 -> 44; matched SNR-0 R_bona +2.56 (< +3) with EER 14.67 -> 15.94",
+    "High-SNR and clean paid: 15-20 dB R_bona fell more than 2 on all four slices (matched -3.67 / -2.36, heldout -2.65 / -4.17); merge clean drop 0.56 > 0.5 guard (R_bona 92.34 -> 90.69)",
+    "Heldout bona fell at every SNR (-2.65 to -7.05) and on unseen families/codecs (wind 71.05 -> 61.84, g726 71.14 -> 65.45, en 60.85 -> 55.43); heldout took 22 of 32 extra merge false alarms (98 -> 120)",
+    "Saturated tail not reduced: noisy bona at p >= 0.99 17.6 % -> 18.8 %, >= 0.999 9.2 % -> 11.0 % (merge); the loss is mostly ranking (0.86 of 1.06 at the best global thresholds)",
+    "Late-training fit weakened: CE ratio 1.06 -> 1.51, JS 1.10 -> 1.67, train acc below B3a's every epoch, dev loss +89 % vs +74 %; mini WF1 below B3a at 5 of 8 epochs (-0.97 at epoch 6)",
+    "Merge worse than its own final epoch on half B (91.99 vs 92.36): 65 vs 38 moderate-band noisy bona false alarms"
+  ],
+  "largest_remaining_error": "B3a-top5's confident noisy bona false alarms: 180 of 782 half_B noisy bona (23.0 %), 138 of them (77 %) at p >= 0.99. Heldout holds 98: g726 36/129, gsm 38/127, g722 24/135. English heldout bona are flagged at twice the Chinese rate (49/129 vs 49/262). By SNR they are spread: 40/123 at 0 dB, 42/142 at 10 dB, 32/148 at 15 dB. No B3 lever (sampler, JS dose, codec profiles, SNR range) shrank the saturated part; B3e has 147 saturated vs 138.",
+  "proposals": [
+    {
+      "rank": 1,
+      "kind": "config",
+      "lever": "llrd_0.9",
+      "change": {
+        "set": {
+          "--llrd": [
+            "0.9"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "heldout ranking / unseen-condition bona recall: heldout half_B EER 10.42, R_bona 74.94; full-set en 60.85, wind 71.05, g726 71.14, gsm 72.76 (B3a-top5). Heldout carried 55 % of B3e's and 61 % of B3d's merge loss",
+      "hypothesis": "Robustness to unseen noise, DSP and codecs lives in the pretrained lower encoder layers. Every B3 change to the training signal moved heldout most. --llrd 0.9 changes no input, so it cannot create a train/eval mismatch. It trains the bottom layer at 0.089x and the stem at 0.080x the LR (0.9^23, 0.9^24), slowing the lower-layer drift that dev loss shows from epoch 1, while the head and upper layers still adapt",
+      "predicted_signature": "heldout half_B F1 > 90.20, EER < 10.42, R_bona > 74.94; dev loss rise from epoch 1 below B3a's +74 %; clean within 0.5 of 97.48; merge half_B WF1 > 93.06",
+      "falsifier": "Wave rule vs B3a-top5 93.06 (promote: delta > +0.5, CI excludes 0, clean drop <= 0.5; null within +-0.5; negative below -0.5). Delta within +-0.5 and heldout EER within +-0.3 of 10.42 -> lower-layer drift is not the limit. Delta < -0.5 with epoch-8 CE > 1.5 x 0.0283 -> the lower layers must adapt (under-fit via the optimiser)"
+    },
+    {
+      "rank": 2,
+      "kind": "config",
+      "lever": "specaug",
+      "change": {
+        "set": {
+          "--specaug": []
+        },
+        "remove": []
+      },
+      "targets": "saturated noisy bona tail and overconfidence: B3a-top5 9.2 % of half_B noisy bona at p >= 0.999, 17.6 % at >= 0.99; dev loss rising from epoch 1 (B3a +74 %, B3e +89 %)",
+      "hypothesis": "Time/frequency masking on the log-mel input regularises without adding a channel or noise condition. B3d's codec profiles and B3e's 0-dB mixtures both added one and moved bona toward spoof. Masks hit both classes the same way, so no new artefact can become class-owned; the saturated tail should thin",
+      "predicted_signature": "epoch-8 dev loss < 0.1722; merge noisy bona >= 0.999 share < 9.2 % and >= 0.99 share < 17.6 %; mean noisy EER < 9.16; clean within 0.5 of 97.48; R_spoof within 0.5; epoch-1 train acc within 2 of 90.16 and epoch-8 CE <= 1.5 x 0.0283; merge > 93.06",
+      "falsifier": "Wave rule vs B3a-top5 93.06. Delta within +-0.5 and epoch-8 dev loss >= 0.17 -> masking does not regularise this backbone. Delta < -0.5 with epoch-8 CE > 1.5 x 0.0283 and every set down -> masked inputs under-fit like B3d/B3e: close the input-side levers"
+    },
+    {
+      "rank": 3,
+      "kind": "config",
+      "lever": "consistency_clean_view",
+      "change": {
+        "set": {
+          "--consistency_clean_view": []
+        },
+        "remove": []
+      },
+      "targets": "noisy bona flipped by degradation: B3a-top5 half_B bona recall 92.34 clean vs 79.03 matched / 74.94 heldout; 180 noisy bona false alarms",
+      "hypothesis": "View a becomes the un-augmented clip and a stop-gradient teacher (data.py featurises the raw audio; losses.py detaches view a). The augmented view is then pulled toward the mostly-correct clean prediction for bona, instead of both views meeting halfway as in B3a/B3c. View b's augmentation distribution is unchanged. Risk: CE covers both views, so half the CE views become raw clips with no codec, which no eval set contains",
+      "predicted_signature": "half_B noisy bona false alarms < 180 with saturated (p >= 0.99) < 138; heldout R_bona > 74.94; R_spoof within 0.5 on matched/heldout; clean within 0.5 of 97.48; merge > 93.06",
+      "falsifier": "Wave rule vs B3a-top5 93.06. Delta within +-0.5 with noisy bona FA within +-10 of 180 -> the teacher does not transfer bona evidence to degraded views. Delta < -0.5 with matched/heldout EER up -> halving the augmented CE exposure costs more than the teacher gives"
+    },
+    {
+      "rank": 4,
+      "kind": "config",
+      "lever": "consistency_lambda_0",
+      "change": {
+        "set": {
+          "--consistency_lambda": [
+            "0.0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "recipe question: whether B3a's +1.08 over B2f comes from the JS term or from the paired views and doubled steps (B3c: the dose response above 0.3 is negative; JS grew 2.89x in B3d and 1.67x in B3e without helping)",
+      "hypothesis": "If JS at 0.3 is inert, the paired views and 2x steps alone reproduce B3a; if it is active, removing it raises noisy EER",
+      "predicted_signature": "if JS is inert: merge within +-0.5 of 93.06, noisy EER within +-0.3 of 9.16, logged unweighted JS above B3a's at most epochs",
+      "falsifier": "Wave rule vs B3a-top5 93.06. Delta < -0.5 with noisy EER >= 9.46 -> JS at 0.3 is an active ingredient, keep it. Delta > +0.5 -> JS hurts at any weight here, drop it from the recipe"
+    },
+    {
+      "rank": 5,
+      "kind": "seed_repeat",
+      "lever": "seed_repeat_B3a",
+      "change": {
+        "set": {
+          "--seed": [
+            "1235"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "measurement: B3a's 93.06 is the wave's only above-band result on one seed. All four changes around it landed -0.77 to -2.20 on half_B, but B3e is only -0.49 / -0.20 on half A",
+      "hypothesis": "The consistency recipe's seed band is unmeasured. If B3a sits at the top of its band, every B3 comparison is biased negative",
+      "predicted_signature": "merge half_B WF1 within +-0.5 of 93.06, with heldout F1 again above B2f-top5's 87.92 by more than 1.5",
+      "falsifier": "A repeat merge below 92.48 (B2f-top5 91.98 + 0.5) means B3a's gain over B2f is inside seed noise; the B3b/B3c/B3e deltas (not B3d's -2.20) must then be re-read against that band"
+    }
+  ]
+}

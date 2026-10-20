@@ -1,0 +1,180 @@
+{
+  "part": "apm_ns",
+  "headline": "apm_ns implemented: the WebRTC NS pass (pywebrtc_audio standalone NoiseSuppressor, no HPF/AGC/AEC) runs after the acoustic stage and before the codec, drawn from rng4 and gated by --aug_apm_p (default 0.0 = B2f). The named selftest passes on the real binding (no_hpf |diff| \u2264 0.92 dB). apm_balance prints no WARN (max |bona\u2212spoof| 0.30 dB). Projected epoch factor is 1.012\u20131.049 against the 1.15 stop rule. checks cpu: 64/64 PASS.",
+  "files": [
+    {
+      "path": "SLS_setup/b4wave/dsp_apm.py",
+      "purpose": "new: wrtc_ns() (int16, fresh primed NoiseSuppressor per clip, 10 ms frames via _process_frame, 96-sample latency compensated, lazy import), LEVEL_DB, measure()/verify()/selftest()/summary() with named asserts shape_finite, no_gain, monotone, no_hpf, aligned"
+    },
+    {
+      "path": "SLS_setup/b4wave/augment.py",
+      "purpose": "apm_ns LeverSpec registration (meta wrtc_ns6/12/18/21 + fail_wrtc_ns, filter wrtc_ns, describe, header); RTCAugConfigB4.apm_p / apm_ns_levels; RTCAugmenterB4._init_apm_ns (level check, lazy import, start-up selftest line) and _lever_apm_ns (rng4 draws, finalize, fail counter)"
+    },
+    {
+      "path": "SLS_setup/b4wave/train.py",
+      "purpose": "B4 group: --aug_apm_p (float, 0.0), --aug_apm_ns_levels (int, nargs +, default [6, 12, 18, 21], choices 6/12/18/21); validate_b4_args level-subset check"
+    },
+    {
+      "path": "SLS_setup/b4wave/checks.py",
+      "purpose": "_equiv_apm_ns (plan equivalence item 3 with an identity NS stub, run from checks augmenter), check_apm, check_apm_balance; CPU_GROUPS += apm, apm_balance"
+    },
+    {
+      "path": "SLS_setup/b4wave/README.md",
+      "purpose": "flag rows marked implemented; new section 'Lever apm_ns' (mechanism, latency, selftest values, counters, header, off behaviour); checks table rows"
+    },
+    {
+      "path": "rdloop/B4/impl/progress.md",
+      "purpose": "apm_ns part marked done: files, measured values, decisions/deviations, what is left"
+    },
+    {
+      "path": "rdloop/B4/scratch/apm_probe.py",
+      "purpose": "scratch probe of the real backend (latency 96 samples, selftest signal values)"
+    },
+    {
+      "path": "rdloop/B4/scratch/toy_trainer_apm.py",
+      "purpose": "scratch: toy-model pass through b4wave.train.main() with --aug_apm_p 0.3 (header, telemetry, config, metrics)"
+    }
+  ],
+  "levers": [
+    {
+      "id": "apm_ns",
+      "flags": [
+        {
+          "name": "--aug_apm_p",
+          "default": "0.0"
+        },
+        {
+          "name": "--aug_apm_ns_levels",
+          "default": "6 12 18 21"
+        }
+      ],
+      "implemented": true,
+      "header_regex": [
+        "^B4 APM NS: on p=",
+        "^B4 APM NS selftest: PASS "
+      ],
+      "where": [
+        "SLS_setup/b4wave/dsp_apm.py:wrtc_ns",
+        "SLS_setup/b4wave/dsp_apm.py:selftest",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._lever_apm_ns",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._init_apm_ns",
+        "SLS_setup/b4wave/augment.py:register(LeverSpec apm_ns)",
+        "SLS_setup/b4wave/augment.py:RTCAugConfigB4",
+        "SLS_setup/b4wave/train.py:build_parser",
+        "SLS_setup/b4wave/train.py:validate_b4_args",
+        "SLS_setup/b4wave/checks.py:_equiv_apm_ns",
+        "SLS_setup/b4wave/checks.py:check_apm",
+        "SLS_setup/b4wave/checks.py:check_apm_balance"
+      ],
+      "deviations": "(1) Latency compensation, an addition to the plan sketch. WebRTC NS delays its output by 96 samples (6 ms) at every level (measured; 256-pt FFT on 160-sample frames). wrtc_ns therefore runs 96 extra zero samples and drops the first 96 output samples, so the output is sample-aligned with the input. Without this, the first 6 ms of every processed clip would be the primed suppressor's synthesis tail of the priming segment, and the last 6 ms of the clip would be lost. A fifth named selftest assert, [aligned] (output lag 0), guards it. The four planned asserts are unchanged. (2) [shape_finite] also runs on a 1234-sample white-noise clip, which is shorter than the 0.5 s priming window and not a multiple of 10 ms, to exercise the padding paths. (3) apm_balance sample: 200 clips (25 per class x src x lang cell = 100 bona + 100 spoof), each under both conditions. That is the plan v3's '200 + 200' runs; the v2 wording '200 bona + 200 spoof' contradicts 25 per cell. The WARN rule is applied to both the whole-clip and the low-energy measure. (4) When the lever is on, a second start-up line 'B4 APM NS selftest: PASS <values>' is printed, because the smoke check needs the selftest values printed. It does not match the header regex. (5) Level validation exists at four points: argparse choices, validate_b4_args (non-empty), the augmenter init and wrtc_ns. With the lever off the levels are still validated at parse time (argparse choices) but never read by the augmenter. (6) data.py and scripts/b4_dsp_slices.py are in the plan's file list but needed no change. The core step already wired the B4 dataset factory and built the readout, including the apm_ns verdict rules and the O3.1-O3.3 owner amendments."
+    }
+  ],
+  "tests": [
+    {
+      "name": "checks_cpu",
+      "command": "cd SLS_setup && python -m b4wave.checks cpu",
+      "device": "cpu",
+      "what": "all CPU groups: lever-off equivalence first (module, flags, augmenter incl. plan item 3 _equiv_apm_ns, reserve_names, imports, trainer, data), then apm, apm_balance, timing, dsp_slices"
+    },
+    {
+      "name": "checks_augmenter",
+      "command": "cd SLS_setup && python -m b4wave.checks augmenter",
+      "device": "cpu",
+      "what": "plan equivalence (1)-(3): defaults give the B3 object; forced B4 bit-identical; apm_p=1.0 with an identity NS gives 200+10 clips bit-identical to B3, parent stage/codec counts equal, and levels equal to the default_rng([1234, pid, 0xB4]) draws"
+    },
+    {
+      "name": "checks_imports",
+      "command": "cd SLS_setup && python -m b4wave.checks imports",
+      "device": "cpu",
+      "what": "plan equivalence (4): fresh process, levers-off build; pywebrtc_audio and b4wave.dsp_apm are not in sys.modules"
+    },
+    {
+      "name": "checks_apm",
+      "command": "cd SLS_setup && python -m b4wave.checks apm",
+      "device": "cpu",
+      "what": "named selftest asserts (shape_finite, no_gain, monotone, no_hpf, aligned) with their values printed; levels outside {6,12,18,21} rejected; levels unread at p=0; header matches ^B4 APM NS: on p=; real NS on 200 synthetic clips (levels equal rng4 draws, parent counts equal B3, no gain, no failures); NS -> codec chain"
+    },
+    {
+      "name": "checks_apm_balance",
+      "command": "cd SLS_setup && python -m b4wave.checks apm_balance",
+      "device": "cpu",
+      "what": "realised removed dB per class x condition (none / forced pool noise U(5,20)) x level on 200 training clips; APM_BALANCE WARN rule"
+    },
+    {
+      "name": "checks_timing",
+      "command": "cd SLS_setup && python -m b4wave.checks timing",
+      "device": "cpu",
+      "what": "CPU-s per clip with apm_ns forced on vs off; projected saturated-loader epoch factor at p=0.3 (fail > 1.3, WARN > 1.15)"
+    },
+    {
+      "name": "checks_gpu",
+      "command": "cd SLS_setup && python -m b4wave.checks gpu --ckpt exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/ckpt/epoch_8_dev_loss_0.144168.pth",
+      "device": "gpu",
+      "what": "B2f ckpt key-exact with identical logits (levers off); lever_forward_backward(apm_ns) with apm_p=1 on real training clips: finite loss and grads, wrtc_ns counts in the meta"
+    },
+    {
+      "name": "smoke_apm_ns",
+      "command": "cd SLS_setup && python -u -m b4wave.train <B2f argv> --aug_apm_p 0.3 (smoke settings)",
+      "device": "gpu",
+      "what": "plan smoke: header ^B4 APM NS: on p=, sum(wrtc_ns*)/sum(codec:*) in [0.25, 0.35], fail_wrtc_ns absent (0), per-class B4 rate 0.3 +- 0.12, selftest line, finite losses, rate and VRAM bars"
+    }
+  ],
+  "cpu_results": [
+    {
+      "command": "python -m py_compile b4wave/*.py ../scripts/b4_dsp_slices.py",
+      "rc": 0,
+      "summary": "all compile"
+    },
+    {
+      "command": "python -m b4wave.train --help",
+      "rc": 0,
+      "summary": "'B4 wave' group shows --aug_apm_p AUG_APM_P and --aug_apm_ns_levels DB [DB ...] with the plan help texts"
+    },
+    {
+      "command": "python -m b4wave.checks cpu",
+      "rc": 0,
+      "summary": "64/64 checks passed in 98s (module 3, flags 7, augmenter 14 incl. apm_ns_identity_parent_stream_untouched x2, reserve 7, imports 1, trainer 5, data 3, apm 11, apm_balance 1, timing 2, dsp_slices 10); b4_flag_defaults_equal_plan: implemented [--aug_apm_ns_levels, --aug_apm_p], pending dtx/opus flags"
+    },
+    {
+      "command": "python -m b4wave.checks apm",
+      "rc": 0,
+      "summary": "11/11 PASS. no_gain (out-in RMS) dB 6:-6.021 12:-12.377 18:-18.402 21:-21.469; monotone removed dB 5.992/11.894/17.529/20.834; no_hpf att 31.25-93.75 Hz vs 1-4 kHz diff -0.086/-0.490/-0.835/-0.924 dB; aligned lag 0 at all levels; header 'B4 APM NS: on p=0.3 levels_db=[6, 12, 18, 21] backend=pywebrtc_audio.NoiseSuppressor hpf=off agc=off'; real NS: processed clips 58 and 67 of 200 in two runs (pid-dependent rng4), levels equal rng4 draws, others bit-identical to B3, fail 0"
+    },
+    {
+      "command": "python -m b4wave.checks augmenter",
+      "rc": 0,
+      "summary": "14/14 PASS; apm_p=1.0 with identity NS: 200/200 (no codec) and 10/10 (codec) clips identical to B3, parent counts equal, levels {6: 56, 12: 58, 18: 45, 21: 41} equal the rng4 draws"
+    },
+    {
+      "command": "python -m b4wave.checks apm_balance",
+      "rc": 0,
+      "summary": "PASS, no APM_BALANCE WARN: 200 clips (100 bona / 100 spoof, 25 per cell) x {none, noise} x 4 levels in 32 s. Whole-clip removed mean bona/spoof: none 0.61-0.80 / 0.81-1.11 dB, noise 1.14-1.54 / 1.22-1.67 dB. Low-energy: none 3.3-4.8 dB both classes, noise 5.0-11.8 dB. Max |bona-spoof| 0.30 dB"
+    },
+    {
+      "command": "python -m b4wave.checks timing",
+      "rc": 0,
+      "summary": "levers off 0.2998 CPU-s/clip; apm_ns forced on 0.3490: projected epoch factor 1.049 at p=0.3. Full cpu run: 0.3052, factor 1.012. Both under the 1.15 stop rule and the 1.3 limit"
+    },
+    {
+      "command": "python rdloop/B4/scratch/toy_trainer_apm.py $TMPDIR/toy_apm apm",
+      "rc": 0,
+      "summary": "toy model through b4wave.train.main(). Printed the selftest line and the header line. Epoch 1 B3 aug line has wrtc_ns6=3 wrtc_ns12=3 wrtc_ns18=2 wrtc_ns21=3 vs 40 codec calls (0.275). Per-class B4 line, config.yaml b4_levers [apm_ns], metrics.jsonl b4 row, then 'Experiment saved to:'"
+    },
+    {
+      "command": "rdlib.check_manifest(repo, rdloop/B4/isolation/manifest.json, cycle, 'rdloop/B4') (read-only)",
+      "rc": 0,
+      "summary": "138 protected files, 0 violations"
+    }
+  ],
+  "equivalence_argument": "With --aug_apm_p 0.0 (the default), active_levers(args) is [], so build_rtc_augmenter_b4 returns build_rtc_augmenter_b3(args) itself: the B3 object, the B3 config, describe() and meta_keys. No RTCAugmenterB4 is constructed, so _init_apm_ns never runs. b4wave.dsp_apm and pywebrtc_audio are never imported (checks imports: fresh process, sys.modules empty of both). No rng4 is created or drawn from, and --aug_apm_ns_levels is not read by the augmenter: base_args(aug_apm_ns_levels=[9]) still builds the B3 object (apm_levels_unread_when_p0). The parent numpy RNG therefore makes exactly the B2f stage and codec draws. checks data shows the train/dev datasets equal b3wave's, with 3 real clips bit-identical after load + augment + codec. No lever header line is printed (b4_header_lines == []). config.yaml rtc_augmentation is the B3 describe(), and b4_levers is []. The model is untouched (ModelSLSB3, no params added), so the forward pass and the checkpoint keys are the same. Separately, with the lever forced on, rng4 isolation holds (plan item 3): apm_p=1.0 with an identity NS gives outputs bit-identical to B3 on 200 clips without and 10 with the codec. Parent stage/codec counts are equal, and the level sequence equals default_rng([1234, pid, 0xB4]) draws (random() then integers(4) per clip). With the real NS at p=0.3, unprocessed clips are bit-identical to B3 and parent counts are equal.",
+  "addressed": [],
+  "open_issues": [
+    "The supervisor still has to run GPU checks and the smoke: checks gpu lever_forward_backward(apm_ns) and the plan smoke bars (wrtc_ns/codec ratio, per-class rate, VRAM).",
+    "Stray cache file: `python -m py_compile ../scripts/b4_dsp_slices.py` created scripts/__pycache__/b4_dsp_slices.cpython-312.pyc. It is git-ignored (.gitignore: __pycache__) and the manifest check reports 0 violations, but the guard forbids deleting it because it is outside the write scope. Later parts should use ast.parse for scripts/.",
+    "Size: the lever code is ~190 code lines (dsp_apm 139 + augment ~40 + train ~12), close to the plan's est_loc 200. The checks add ~270 code lines vs the planned 80 (apm_balance and the per-assert value printing).",
+    "WebRTC NS removes the full level from the selftest's harmonic complex too (\u22126/\u221212/\u221218/\u221221 dB). The suppressor learns the stationary periodic signal as noise. The plan allows this ([no_gain] is one-sided). On real training clips the whole-clip removal is small: 0.6\u20131.7 dB mean (apm_balance).",
+    "Timing projection is noisy because ffmpeg children dominate: 1.049 and 1.012 in two runs. Both are under the 1.15 stop rule."
+  ],
+  "needs_user": [],
+  "progress_note": "Done: core and apm_ns. apm_ns is complete: dsp_apm.py; the augment.py registration, config fields, _init/_lever; train.py flags and validation; checks.py (_equiv_apm_ns, apm, apm_balance); README section and flag table. checks cpu: 64/64 PASS. Left: dtx_gate and opus_plc (flags, LeverSpec, DSP module, checks, README rows). The `_equiv_<id>` hook in check_augmenter is where their plan equivalence item 3 goes. Details are in rdloop/B4/impl/progress.md."
+}

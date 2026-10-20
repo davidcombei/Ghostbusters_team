@@ -1,0 +1,407 @@
+{
+  "report_path": "rdloop/B4/02_sota.md",
+  "headline": "The literature supports putting real RTC platform processing into training, which B2f has never done. Three levers: WebRTC-APM noise suppression + AGC2 after the noise stage (TFCL's Mix arm cut full-chain EER from 22.20 to 17.39), WebRTC-VAD DTX gating with comfort-noise gaps (SIL: positive on DF21 for 3 of 3 models, mixed elsewhere), and an in-process libopus round trip with real packet loss and decoder PLC (ADD-C). They target heldout's worst DSP slices and the saturated \"no speech evidence \u21d2 spoof\" core. AugMix-style single-view mixing, an AEC3 echo suite and DeepAugment-perturbed DeepFilterNet are secondary.",
+  "queries": [
+    "speech deepfake detection WebRTC noise suppression AGC VAD augmentation robustness real-time communication",
+    "audio deepfake detection speech enhancement denoising training augmentation improves robustness arXiv 2025",
+    "anti-spoofing silence voice activity detection trimming augmentation impact of silence countermeasure",
+    "audio deepfake detection packet loss concealment codec augmentation benchmark ADD-C",
+    "deepfake speech detection acoustic echo far-end double-talk augmentation robustness 2026",
+    "ASVspoof 2021 data augmentation telephony codec transmission channel known-unknown augmentation countermeasure",
+    "github python bindings WebRTC audio processing noise suppression auto gain control pip webrtc-noise-gain",
+    "RTCFake speech deepfake detection real-time communication 2026 robustness noise augmentation new method (extended)",
+    "opuslib python packet loss concealment decode lost frame Gilbert-Elliott simulation github",
+    "AugMix ablation without Jensen-Shannon consistency mixing only CIFAR-10-C error",
+    "rhythm perturbation data augmentation speech anti-spoofing silence trimming cross-dataset",
+    "noise-aware audio deepfake detection SNR benchmark survey practical recipes four-class 2512.13744",
+    "SILK codec AMR augmentation speech deepfake detection WeChat telephony narrowband robustness training",
+    "Opus DTX comfort noise generation VAD gating effect speech classifier robustness augmentation discontinuous transmission",
+    "\"echo\" augmentation spoofing countermeasure robustness conference call residual echo deepfake detector false alarm",
+    "audio deepfake detection training noise diversity DEMAND FSD50K unseen noise types generalization data augmentation study"
+  ],
+  "ideas": [
+    {
+      "id": "I1",
+      "title": "WebRTC-APM noise suppression + AGC2 stage after the noise stage (noise -> APM -> codec)",
+      "category": "augmentation",
+      "gap_ids": [
+        "G1",
+        "G2"
+      ],
+      "mechanism": "RTC platforms apply NS and AGC to speech+noise before the codec. B2f trains only on noise + Opus (no DSP ever, 01_audit G1), so suppressor and gain artefacts are out of support and get read as 'processing => spoof'. The worst heldout slices are exactly NS and AGC: afftdn bona recall 55.4/58.1 and dynaudnorm 64.2/62.3 vs 72.7 with no DSP (01_audit \u00a73.4). Passing both classes through a different suppressor family (WebRTC NS levels 1-3 + AGC2) removes suppressor artefacts as a class cue. Because it runs after the noise stage, it also changes how in-distribution noise looks (G2).",
+      "sources": [
+        {
+          "title": "Time-Frequency Consistency Learning for Robust Speech Deepfake Detection",
+          "url": "https://arxiv.org/html/2607.17761",
+          "venue_year": "arXiv 2026",
+          "quote": "The Mix strategy partially alleviates the degradation.",
+          "verified": true
+        },
+        {
+          "title": "RTCFake: Speech Deepfake Detection in Real-Time Communication",
+          "url": "https://arxiv.org/html/2604.23742v1",
+          "venue_year": "Findings of ACL 2026",
+          "quote": "built-in speech enhancement modules of communication platforms, such as noise suppression, echo cancellation, and automatic gain control",
+          "verified": true
+        },
+        {
+          "title": "pywebrtc-audio (README)",
+          "url": "https://github.com/strands-labs/pywebrtc-audio",
+          "venue_year": "software 2026",
+          "quote": "HP filter -> AEC -> NS -> AGC",
+          "verified": true
+        },
+        {
+          "title": "What Counts as Real? Speech Restoration and Voice Quality Conversion Pose New Challenges to Deepfake Detection",
+          "url": "https://arxiv.org/abs/2603.14033",
+          "venue_year": "arXiv 2026",
+          "quote": "detectors can often identify that speech has been processed",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "TFCL WebRTC front-end chain (AEC->NS->AGC->VAD), XLSR-AASIST, Table 2",
+        "metric": "EER % at full-chain (VAD) condition",
+        "delta": "clean-only training 22.20 -> Mix (clean + front-end-processed) training 17.39; clean 0.23 -> 0.52; front-end-only training 11.84 (clean 7.06)",
+        "quote": "The Mix strategy partially alleviates the degradation."
+      },
+      "transfer_risk": "TFCL trains and tests on the same WebRTC chain, so transfer from WebRTC NS to heldout's afftdn is not shown. The Mix arm cost clean EER (0.23 -> 0.52), and clean is 30% of WF1. B3 lesson 4: harder inputs cut late fit. Keep p~0.3 and pre-register the falsifier: ep8 CE >= 1.5x B2f with heldout R_bona down. AGC2 on top of loudness norm adds a dynamic gain pattern only.",
+      "sketch": "New b4wave/dsp.py apm_process(): float32 -> int16 10 ms frames through pywebrtc_audio NoiseSuppressor(level 1-3) + GainController (AGC2), with fallback webrtc_noise_gain.AudioProcessor. RTCAugConfigB4(RTCAugConfigB3) gets apm_p=0, apm_ns_levels, apm_agc_p. RTCAugmenterB4.__call__: _stage -> (b4 RNG, p=apm_p) finalize(apm_process) -> codec unchanged. assert_training_ops(filters=['wrtc_ns','wrtc_agc2']); telemetry stage:wrtc_ns{l}; flags --aug_apm_p --aug_apm_ns_levels --aug_apm_agc_p; check: off-path bit-identity.",
+      "est_loc": 220,
+      "state_dict_change": false,
+      "dependencies": [
+        "pywebrtc-audio (fallback: webrtc-noise-gain)"
+      ],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.05,
+      "novelty_vs_tried": "No DSP stage of any kind has been in training (01_audit G1). The DeepFilterNet suppress stage exists but was never enabled, and it is drawn instead of a noise stage, so it would suppress clean speech, not noisy speech. Not adjacent to any exhausted lever.",
+      "verified_sources": 4
+    },
+    {
+      "id": "I2",
+      "title": "WebRTC-VAD DTX gating with comfort-noise / zero / attenuated gaps + short pause insertion",
+      "category": "augmentation",
+      "gap_ids": [
+        "G3",
+        "G1"
+      ],
+      "mechanism": "RTC endpoints gate non-speech (DTX, then comfort noise or digital silence). The model has never seen gated bona and scores non-speech-dominated input as spoof: sil_only/noise_only probes are 100% spoof with mean dP +0.89/+0.90, and heldout VAD+CNG bona recall is 55.9/61.8 (01_audit \u00a73.4-3.5). Gating both classes at random, with zero, attenuated or comfort-noise gaps and inserted pauses, removes silence content and duration as a label cue (SSG, SIL). It also teaches that gated stretches carry no class evidence. This is the only card aimed at the saturated core, which is 64% of noisy bona FA.",
+      "sources": [
+        {
+          "title": "The Impact of Silence on Speech Anti-Spoofing",
+          "url": "https://arxiv.org/html/2309.11827",
+          "venue_year": "arXiv 2023",
+          "quote": "the silence frames are masked by zero (Sil-mask)",
+          "verified": true
+        },
+        {
+          "title": "The Impact of Silence on Speech Anti-Spoofing (abstract)",
+          "url": "https://arxiv.org/abs/2309.11827",
+          "venue_year": "arXiv 2023",
+          "quote": "removing the silence of test speech through Voice Activity Detection (VAD) can severely degrade performance",
+          "verified": true
+        },
+        {
+          "title": "Speech is Silver, Silence is Golden (M\u00fcller et al.)",
+          "url": "https://arxiv.org/abs/2106.12914",
+          "venue_year": "arXiv 2021",
+          "quote": "EER increases from 3.6% (with silence) to 15.5% (trimmed silence).",
+          "verified": true
+        },
+        {
+          "title": "Time-Frequency Consistency Learning for Robust Speech Deepfake Detection",
+          "url": "https://arxiv.org/html/2607.17761",
+          "venue_year": "arXiv 2026",
+          "quote": "while that of the SSL-based XLSR\\_AASIST rises from 0.23% to 22.20%.",
+          "verified": true
+        },
+        {
+          "title": "py-webrtcvad (README)",
+          "url": "https://github.com/wiseman/py-webrtcvad",
+          "venue_year": "software",
+          "quote": "A frame must be either 10, 20, or 30 ms in duration.",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "ASVspoof 2021 DF eval (SIL Table VI)",
+        "metric": "EER %",
+        "delta": "Sil-mask training vs unprocessed: AASIST 16.92 -> 16.06, LCNN 22.46 -> 20.41, SENet 22.95 -> 22.14; mixed on LA21/LA19",
+        "quote": "the EER of the LCNN model on the evaluation partition is relatively decreased by 31%"
+      },
+      "transfer_risk": "The evidence is mixed: Sil-mask hurt SENet/AASIST on LA19 unseen attacks, and SIL applies it deterministically, while this card applies it stochastically at p~0.3. If RTCFake bona pause statistics really differ, removing the cue may cost clean F1. Heldout VAD is sim_ops energy-VAD, and webrtcvad differs in thresholds and hangover. Inserted pauses must stay <= 1 s so a 4.04 s crop is rarely speech-free.",
+      "sketch": "b4wave/dsp.py dtx_gate(): webrtcvad.Vad(mode 0-3) over 10/20/30 ms frames -> mask -> hangover dilation 40-200 ms -> fill gaps with {zeros, comfort noise at -45..-60 dB rel. RMS with 5 ms ramps, attenuation -15..-35 dB}. With p=insert_p, insert 1-2 pauses of 0.2-1.0 s at speech boundaries. Post-stage after the acoustic stage (and after I1), before the codec, on the b4 RNG. Op name 'wrtc_dtx' (not reserved 'vad_gate'); flags --aug_dtx_p --aug_dtx_fill --aug_dtx_insert_p; telemetry: gated-frame fraction.",
+      "est_loc": 200,
+      "state_dict_change": false,
+      "dependencies": [
+        "webrtcvad (py-webrtcvad or webrtcvad-wheels)"
+      ],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.02,
+      "novelty_vs_tried": "A2.3/A2.9 have never run. No lever targeted G3: LR, schedule, sampler and consistency did not move the saturated core (01_audit G3). The padded/trimmed probes test only digital silence at the clip edges.",
+      "verified_sources": 5
+    },
+    {
+      "id": "I3",
+      "title": "In-process libopus round trip with real packet loss (Gilbert-Elliott) + decoder PLC / in-band FEC",
+      "category": "augmentation",
+      "gap_ids": [
+        "G1",
+        "G2"
+      ],
+      "mechanism": "RTC links drop packets, and decoders conceal them with SILK/CELT PLC or FEC, which produces smeared or over-smoothed segments a detector can read as synthetic. The current codec stage never drops a packet: B3d's '-packet_loss' was only the encoder's expected-loss hint. Heldout loss+PLC is the largest DSP slice (130 bona), with bona recall 66.2/66.9 vs 72.7 without DSP (01_audit \u00a73.4). Encoding in-process with opuslib lets us drop bursty packets and let libopus conceal them. The per-app profiles stay fixed, unlike B3d.",
+      "sources": [
+        {
+          "title": "Benchmarking Audio Deepfake Detection Robustness in Real-world Communication Scenarios (ADD-C)",
+          "url": "https://arxiv.org/html/2504.12423v2",
+          "venue_year": "arXiv 2025",
+          "quote": "The EER remains unchanged, with a slight improvement of 0.003% from C0 to C1.",
+          "verified": true
+        },
+        {
+          "title": "RTCFake: Speech Deepfake Detection in Real-Time Communication",
+          "url": "https://arxiv.org/html/2604.23742v1",
+          "venue_year": "Findings of ACL 2026",
+          "quote": "key distortion sources, including noise suppression, echo cancellation, codec encoding and decoding, and packet loss",
+          "verified": true
+        },
+        {
+          "title": "opuslib Decoder (classes.py)",
+          "url": "https://github.com/orion-labs/opuslib/blob/master/opuslib/classes.py",
+          "venue_year": "software",
+          "quote": "decode_fec: bool = False",
+          "verified": true
+        },
+        {
+          "title": "opuslib (repo)",
+          "url": "https://github.com/orion-labs/opuslib",
+          "venue_year": "software",
+          "quote": "Python bindings to the libopus, IETF low-delay audio codec.",
+          "verified": true
+        },
+        {
+          "title": "UR Channel-Robust Synthetic Speech Detection System for ASVspoof 2021",
+          "url": "https://arxiv.org/abs/2107.12018",
+          "venue_year": "ASVspoof 2021 workshop (arXiv 2021)",
+          "quote": "an acoustic simulator to apply transmission codec, compression codec, and convolutional impulse responses",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "ADD-C (6 codecs x packet loss 0-20%)",
+        "metric": "EER % change C0 -> C1",
+        "delta": "authors' model trained on original data: +2.33 average degradation (baselines +5.30); trained on codec+packet-loss augmented data: unchanged (-0.003)",
+        "quote": "the baseline models experienced an average degradation of 5.30% in EER"
+      },
+      "transfer_risk": "ADD-C's gain is in-distribution: the same codecs and loss model at train and test. Heldout uses sim_ops repeat-PLC on reserved non-Opus codecs. B3d shows Opus-side changes can hurt (-2.20), so keep app profiles fixed, p~0.3 and loss 2-15%. libopus must live in the conda env, or a container restart silently disables the stage, so count failures in telemetry. Whether an empty payload triggers PLC must be verified in the smoke test.",
+      "sketch": "New b4wave/opus_plc.py opus_loss_roundtrip(audio, rng, app): profile from CODEC_PROFILES[app] (cutoff -> NB/MB/WB bandwidth), opuslib.Encoder frame-by-frame, Gilbert-Elliott mask (loss U(0.02,0.15), mean burst 1-4 frames). Decode: decode(pkt); for a lost packet, decode(next, frame, decode_fec=True) when FEC is on and the next packet arrived, else the empty-payload PLC call. Hook: in RTCAugmenterB4.__call__, with p=opus_plc_p this replaces ffmpeg codecs_augm for the same app draw. Op name 'opus_plc' (not reserved 'packet_loss'); flags --aug_opus_plc_p --aug_opus_loss --aug_opus_burst --aug_opus_fec_p.",
+      "est_loc": 230,
+      "state_dict_change": false,
+      "dependencies": [
+        "opuslib",
+        "libopus (conda-forge)"
+      ],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.03,
+      "novelty_vs_tried": "B3d (exhausted) randomised ffmpeg encoder parameters and never dropped a packet or exercised decoder concealment (ffmpeg 4.2 has no FEC/DTX). Packet loss + PLC (A2.6/D4) has never run.",
+      "verified_sources": 5
+    },
+    {
+      "id": "I4",
+      "title": "AugMix-style single-view mixing of parallel augmentation chains (Dirichlet mix + skip to the clean clip)",
+      "category": "augmentation",
+      "gap_ids": [
+        "G1",
+        "G2"
+      ],
+      "mechanism": "Unseen platform conditions are compositions. Heldout chain depth 4 gives bona recall 50.0 (01_audit \u00a73.4), and Proteus's verdict-flipping chains are depth-2 and all target bona. AugMix mixes k parallel chains with Dirichlet weights and keeps a Beta-weighted skip to the clean clip. That raises diversity while lowering average strength, the opposite of the exhausted B3d/B3e widening. Two mixed noise chains also give the untested two-source noise at a random effective SNR (G2). In the AugMix ablation, mixing without the JS loss carries most of the gain, so it fits the single-view time cap.",
+      "sources": [
+        {
+          "title": "AugMix: A Simple Data Processing Method to Improve Robustness and Uncertainty",
+          "url": "https://ar5iv.labs.arxiv.org/html/1912.02781",
+          "venue_year": "ICLR 2020",
+          "quote": "Mixing random augmentations without the Jenson-Shannon divergence loss gives us an error rate of 13.1%.",
+          "verified": true
+        },
+        {
+          "title": "AugMix (abstract)",
+          "url": "https://arxiv.org/abs/1912.02781",
+          "venue_year": "ICLR 2020",
+          "quote": "AugMix significantly improves robustness and uncertainty measures on challenging image classification benchmarks.",
+          "verified": true
+        },
+        {
+          "title": "Proteus: Automated Adversarial Robustness Testing for Audio Deepfake Detectors",
+          "url": "https://arxiv.org/html/2606.29544",
+          "venue_year": "arXiv 2026",
+          "quote": "all of the top-100 chains (ranked by absolute score shift) target bonafide samples",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "CIFAR-10-C (AugMix Table 4)",
+        "metric": "corruption error %",
+        "delta": "Standard 26.9 -> AugmentAndMix without JSD 13.1 (Random AutoAugment 17.0; full AugMix 11.2)",
+        "quote": "Mixing random augmentations without the Jenson-Shannon divergence loss gives us an error rate of 13.1%."
+      },
+      "transfer_risk": "Vision evidence only. Summing time-domain chains of the same clip (echo/reverb vs dry) causes comb filtering, which is realistic for echo but new. The skip to the clean clip lowers effective noise exposure, which could shrink the noisy gain (B3e in reverse). Most of AugMix's extra gain needs JSD, which is unaffordable here.",
+      "sketch": "Override RTCAugmenterB4._stage when mix_k>0 and rng<p_apply: k in {2,3} chains of U{1,2} distinct stages via B3 _apply_stage (plus I1/I2 stages if enabled); w~Dir(alpha), m~Beta(alpha,alpha); out = m*x + (1-m)*sum w_i chain_i; finalize; codec unchanged. Flags --aug_mix_k --aug_mix_alpha --aug_mix_p; telemetry: per-stage counts and an m histogram.",
+      "est_loc": 130,
+      "state_dict_change": false,
+      "dependencies": [],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.1,
+      "novelty_vs_tried": "Chaining (--aug_max_stages) was never run and mixing was never coded. It widens no range and makes the average augmentation milder, unlike exhausted B3d/B3e.",
+      "verified_sources": 3
+    },
+    {
+      "id": "I5",
+      "title": "Echo suite: multi-tap self-echo + far-end (bona) talker echo through RIR with WebRTC AEC3 residual / double-talk",
+      "category": "augmentation",
+      "gap_ids": [
+        "G4",
+        "G1"
+      ],
+      "mechanism": "Training echo is a single delayed copy (40-160 ms, gain 0.15-0.5). Eval echo includes multi-tap self-echo (worst echo family, bona recall 79.40/79.83) and far-end echo with or without AEC (01_audit G4). The card adds 2-4-tap decaying self-echo and a far-end talker (random bona training clip for both classes, so class-independent) through an RIR at -10..+5 dB, then AEC3 with the true far reference. This gives realistic residual echo, double-talk and suppression artefacts.",
+      "sources": [
+        {
+          "title": "RTCFake: Speech Deepfake Detection in Real-Time Communication",
+          "url": "https://arxiv.org/html/2604.23742v1",
+          "venue_year": "Findings of ACL 2026",
+          "quote": "key distortion sources, including noise suppression, echo cancellation, codec encoding and decoding, and packet loss",
+          "verified": true
+        },
+        {
+          "title": "EchoFake: A Replay-Aware Dataset for Practical Speech Deepfake Detection",
+          "url": "https://arxiv.org/abs/2510.19414",
+          "venue_year": "arXiv 2025",
+          "quote": "average accuracy dropping to 59.6% when evaluated on replayed audio",
+          "verified": true
+        },
+        {
+          "title": "CLAD (contrastive learning against manipulation attacks)",
+          "url": "https://arxiv.org/abs/2404.15854",
+          "venue_year": "arXiv 2024",
+          "quote": "CLAD enhanced robustness, reducing the FAR to 0.81% under noise injection",
+          "verified": true
+        },
+        {
+          "title": "pywebrtc-audio (README)",
+          "url": "https://github.com/strands-labs/pywebrtc-audio",
+          "venue_year": "software 2026",
+          "quote": "Python bindings for the WebRTC audio processing module.",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "RTCFake eval S04 Echo (Table 3); no echo-augmentation result found for ADD",
+        "metric": "EER %",
+        "delta": "echo is the hardest condition: PCL 13.40, Mix 16.92, On 17.34 (problem size, not augmentation gain)",
+        "quote": "key distortion sources, including noise suppression, echo cancellation, codec encoding and decoding, and packet loss"
+      },
+      "transfer_risk": "Weakest evidence of the six: no paper measures echo/AEC-residual augmentation for ADD. Echo is not in local WF1, so a gain shows only on sim_echo_v1. Far-end speech from training utterances is only 'likely allowed'. A second clip read per call adds worker I/O, and AEC3 needs aligned far/near streams with a delay hint.",
+      "sketch": "b4wave/echo.py: self_echo_multi(audio, rng, rirs) and farend_aec(audio, far, rng, rirs, apm) using pywebrtc_audio EchoCanceller/AudioProcessor process(near, far). far_pool = bona file list from the train protocol, passed via RTCAugConfigB4. Post-stage with p=echo2_p on the b4 RNG, so the 1/N stage shares stay unchanged. Op names 'echo_multitap', 'wrtc_aec3'; flags --aug_echo2_p --aug_echo2_modes --aug_echo2_aec_p.",
+      "est_loc": 280,
+      "state_dict_change": false,
+      "dependencies": [
+        "pywebrtc-audio"
+      ],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.08,
+      "novelty_vs_tried": "A2.4 has never run and no lever targeted G4. Training echo is still the original one-tap CLAD AddEchoes.",
+      "verified_sources": 4
+    },
+    {
+      "id": "I6",
+      "title": "DeepAugment-audio: weight-perturbed DeepFilterNet as a randomised 'unknown suppressor' stage",
+      "category": "augmentation",
+      "gap_ids": [
+        "G1"
+      ],
+      "mechanism": "The five unseen eval platforms use suppressors we cannot reproduce. Perturbing the weights of a real neural suppressor (DeepFilterNet, already wired as 'suppress') gives a family of plausible-but-novel NS distortions around a real one. This randomises the DSP domain the way DeepAugment does for image corruptions, without touching any reserved implementation.",
+      "sources": [
+        {
+          "title": "The Many Faces of Robustness (DeepAugment)",
+          "url": "https://ar5iv.labs.arxiv.org/html/2006.16241",
+          "venue_year": "ICCV 2021",
+          "quote": "DeepAugment distorts images by perturbing internal representations of deep networks.",
+          "verified": true
+        },
+        {
+          "title": "DeepFilterNet (README)",
+          "url": "https://github.com/Rikorose/DeepFilterNet",
+          "venue_year": "software",
+          "quote": "Install the DeepFilterNet Python wheel via pip:",
+          "verified": true
+        }
+      ],
+      "reported_effect": {
+        "dataset": "ImageNet-C / ImageNet-R (ResNet-50)",
+        "metric": "mCE / top-1 error",
+        "delta": "mCE 76.7 -> 60.4 (DeepAugment), -> 53.6 (+AugMix); ImageNet-R error 63.9% -> 57.8%",
+        "quote": "The image-to-image network's weights and feedforward activations are distorted with each pass."
+      },
+      "transfer_risk": "Vision-only evidence. DFN at 48 kHz on CPU in 64 workers may break the 1.3x epoch cap, and its RTF is undocumented. Strong perturbations can create vocoder-like artefacts on bona, which teaches 'artefact => bona' and costs spoof recall. Neural processing of bona is a rule grey zone (not resynthesis).",
+      "sketch": "b4wave/deepaug.py: per-worker DFN with a pristine state_dict. Every 50 calls, build a perturbed copy: multiplicative noise sigma U(0.05,0.3) on 30-50% of tensors, 0-10% zeroing, one-channel sign flip. enhance() at 48 kHz, then wet/dry mix U(0.5,1). Post-stage after the noise stage with p=deepaug_p; torch.set_num_threads(1); op name 'dfn_deepaug'.",
+      "est_loc": 180,
+      "state_dict_change": false,
+      "dependencies": [
+        "deepfilternet"
+      ],
+      "extra_vram_gib": 0,
+      "extra_time_frac": 1.2,
+      "novelty_vs_tried": "Roadmap X5.3, never built. DeepFilterNet has never run in training (01_audit G1).",
+      "verified_sources": 2
+    }
+  ],
+  "rejected": [
+    {
+      "title": "Two-view consistency variants (TFCL time-frequency consistency, PCL, JS/embedding)",
+      "why": "Two views double the epoch (B3a 57.7-59.8 min vs the ~40.6 min 1.3x cap). Loss rather than augmentation (cycle focus). JS above 0.3 is exhausted."
+    },
+    {
+      "title": "Codec zoo: real SILK, AMR-NB/WB, EVS, or more Opus randomisation",
+      "why": "Adjacent to exhausted B3d (-2.20; g726/gsm bona worse). No local proxy for real SILK (matched qq/wechat are Opus-emulated). G.722/G.726/GSM/speex/G.711 are reserved. AMR support in ffmpeg 4.2 is unknown. Literature gains are in-distribution only."
+    },
+    {
+      "title": "Low-pass / band-limit / 8 kHz resample augmentation (2211.06546, 2501.05545)",
+      "why": "bandlimit and resample8k are reserved heldout filters. Training on them would erase the heldout band-limit slice as an unseen test."
+    },
+    {
+      "title": "Speech enhancement as an inference pre-processor",
+      "why": "Not augmentation. Rule status 'ask'. 2603.14767 shows enhancer quality does not predict detection gain, and the roadmap marks it not recommended."
+    },
+    {
+      "title": "Babble from own training speech",
+      "why": "Rule only 'likely allowed'. Mixed-label babble leaks label evidence. The coffee/office pools already contain babble-like content. Revisit after organiser confirmation."
+    },
+    {
+      "title": "Neural-codec round trip (EnCodec/DAC) augmentation",
+      "why": "Rule 'ask' (resynthesis of bona). 2503.17577 notes neural codecs cause large drops, so there is a label-noise risk."
+    },
+    {
+      "title": "Noise-pool expansion (DEMAND/FSD50K/DNS non-speech)",
+      "why": "No ADD-specific evidence found (query 16). It is a data-acquisition task, not a code lever, and must avoid the 11 reserved ESC-50 classes. Hand it to the owner as a data task."
+    },
+    {
+      "title": "SNR beta shape, --aug_max_stages chaining, RawBoost SSI coloured noise, SpecAugment",
+      "why": "Flags already exist in b3wave, so exploop can screen them without an rdloop build. SNR range widening is exhausted (B3e)."
+    },
+    {
+      "title": "Rhythm-perturbation copy-synthesis (2310.12014)",
+      "why": "It creates new spoofs by re-synthesising bona, which is forbidden by the challenge rules."
+    },
+    {
+      "title": "Proteus-style adversarial chain mining with the B2f model",
+      "why": "Needs offline model-in-the-loop search and a policy loop. Proteus reports no retraining numbers. Deferred; I4 covers part of the compositional idea."
+    },
+    {
+      "title": "Speech-mask training (SIL)",
+      "why": "It keeps only silence, which is the shortcut to remove, and SIL's results are mixed. I2 takes the gating / Sil-mask direction instead."
+    }
+  ],
+  "_verified": {
+    "verified": 23,
+    "sources": 23
+  }
+}

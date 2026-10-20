@@ -1,0 +1,145 @@
+{
+  "wave": "B3",
+  "description": "B3 wave: 5-iteration CLI-flags-only exploration from B2f on the b3wave trainer (plan: plan_snapshot.md). Adopted mid-flight on 2026-10-10: B3a was trained in session 0863b758 but never evaluated.",
+  "repo": "/root/repos/rtc-sdd/Ghostbusters_team",
+  "python": "/root/.conda/envs/rtc-sdd/bin/python",
+  "report_dir": "docs/experiments-exploration/b3-experiments",
+  "report_template": "docs/experiments-exploration/20261009_175355_B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234.md",
+  "registry": "docs/experiment_log.csv",
+  "max_iterations": 5,
+  "letters": "abcde",
+  "track_prefix": "B3",
+
+  "trainer": {
+    "entry": ["-m", "b3wave.train"],
+    "cwd": "SLS_setup",
+    "exp_root": "SLS_setup/exp",
+    "launcher": "scripts/run_{prefix}{letter}.sh",
+    "flag_sources": ["SLS_setup/b3wave/train.py"],
+    "preflight": ["ffmpeg", "pyloudnorm"],
+    "ffmpeg_install_cmd": "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg",
+    "smoke_args": ["--train_subset_frac", "0.02", "--num_epochs", "1", "--keep_epochs", "1", "--out_path", "./exp_smoke"]
+  },
+
+  "search_space": {
+    "allowed": ["--consistency", "--consistency_lambda", "--consistency_emb_lambda", "--consistency_pairs", "--consistency_clean_view",
+                "--sampler", "--sampler_lang_balance", "--sampler_bona_frac", "--ce_weights",
+                "--aug_snr_db", "--aug_snr_dist", "--aug_snr_beta_mode", "--aug_codec_profiles", "--aug_max_stages",
+                "--specaug", "--specaug_time", "--specaug_freq", "--llrd", "--freeze_bottom_k", "--use_level_aug",
+                "--batch_size", "--lr", "--lr_min", "--num_epochs"],
+    "coupled": [["--consistency", "--consistency_lambda", "--consistency_emb_lambda", "--consistency_pairs", "--consistency_clean_view", "--batch_size"],
+                ["--sampler", "--sampler_lang_balance", "--sampler_bona_frac", "--ce_weights"],
+                ["--aug_snr_db", "--aug_snr_dist", "--aug_snr_beta_mode"],
+                ["--specaug", "--specaug_time", "--specaug_freq"],
+                ["--lr", "--lr_min"]],
+    "forbidden": ["--out_path", "--train_subset_frac", "--model_path", "--resume", "--label_smoothing", "--aug_music_dirs",
+                  "--freeze_ssl", "--local_eval_names", "--dev_data_path", "--train_data_path", "--pair_csv"],
+    "fixed": {"--musan_dir": ["../data/augmentation/musan"], "--loudness_norm": [], "--loudness_norm_lufs": ["-23"],
+              "--dev_protocol": ["../data/dev_noisy_sim/dev_label_excl_halfB.txt"],
+              "--local_eval_sets": ["../configs/local_eval_sets.yaml"],
+              "--ssl_name": ["Qwen/Qwen3-ASR-1.7B"], "--n_layers": ["24"]},
+    "max_epochs": 10,
+    "keep_topk_by_wf1": 7,
+    "seed": 1234
+  },
+
+  "lever_queue": [
+    {"id": "consistency_dose", "when": "if B3a's consistency helps", "set": {"--consistency_lambda": ["1.0"]}, "alt": "--consistency js_emb", "targets": "noisy bona separability (noisy EER, saturated bona tail)"},
+    {"id": "codec_random", "set": {"--aug_codec_profiles": ["random"]}, "targets": "heldout-codec bona recall (g726/gsm are reserved: the gain must come from generalisation)"},
+    {"id": "snr_0_20", "set": {"--aug_snr_db": ["0", "20"]}, "targets": "SNR-0 bona recall (uniform keeps the high-SNR mass; beta mode-8 cut the >=15 dB share from 33% to 13% in smoke)"},
+    {"id": "max_stages_2", "set": {"--aug_max_stages": ["2"]}, "targets": "compound degradations"},
+    {"id": "specaug", "set": {"--specaug": []}, "targets": "regularisation: dev loss rises from epoch 1"},
+    {"id": "level_aug_on_loudnorm", "set": {"--use_level_aug": []}, "targets": "restore the regulariser B2f lost"},
+    {"id": "sampler_balanced", "set": {"--sampler": ["balanced"], "--sampler_lang_balance": [], "--sampler_bona_frac": ["0.5"], "--ce_weights": ["<derive>", "<derive>"]}, "targets": "English bona exposure, isolated from the operating point"},
+    {"id": "llrd_0.9", "set": {"--llrd": ["0.9"]}, "targets": "optimiser: protect lower layers"}
+  ],
+  "lever_notes": [
+    "--ce_weights order is [spoof, bonafide]; the default is 0.1 0.9. 0.19 0.81 would push the bias further toward spoof; the prior lever goes toward 0.05 0.95.",
+    "With --sampler balanced (bona share 0.5 instead of ~19%) re-derive --ce_weights so the effective class prior of 0.1/0.9 at ~19% bona stays constant (~0.32 0.68): compute it with python from /mnt/paml-research/RTCFake/data/train_label.txt and paste the output into `derivation`. CE 0.5/0.5 would cut bona's effective weight from ~2.1:1 to 1:1 and deepen the spoof bias.",
+    "--llrd 0.85 at lr 2.5e-6 nearly freezes the bottom layers; 0.9 is the proposed value.",
+    "Consistency (--consistency js|js_emb) needs --batch_size 8 (pairs) to keep 16 clips per step; steps per epoch double (~8 h run).",
+    "Keep B2f's MUSAN pool (--musan_dir ../data/augmentation/musan); sim_unseen_v1 is therefore not read in this loop (music leak).",
+    "Every eval of a loudness-norm run must pass --loudness_norm --loudness_norm_lufs -23 (the supervisor reads them from config.yaml).",
+    "Final-epoch EMA checkpoints beat the top-5 merge in every B2 run; both readouts are evaluated and logged. Best = merge readout (approved plan).",
+    "Noise band at lr ~5e-6: ~0.2-0.5 WF1 on the final readout, up to ~1.4 per set (B2 near-replicates)."
+  ],
+
+  "smoke": "off",
+  "early_check": {
+    "minutes": 10,
+    "expect": ["^b3wave: ", "^Loudness norm: loudness_norm target=-23 LUFS", "^Local eval: ", "^Warmup-cosine: "],
+    "forbid": ["Traceback \\(most recent call last\\)", "out of memory", "failed \\("]
+  },
+
+  "eval": {
+    "profile": "sls_local17",
+    "k": 5,
+    "ci": 2000,
+    "names": ["dev_online_clean", "sim_matched_v1", "sim_heldout_v1", "sim_echo_v1", "probe_orig", "probe_sil_only", "probe_noise_only",
+              "probe_trimmed", "probe_padded", "probe_gain_up", "probe_gain_down", "probe_gain_m20", "probe_gain_m6", "probe_gain_p6",
+              "probe_gain_p10_limit", "probe_agc_dynaudnorm", "probe_loudnorm"],
+    "fixed_comparators": [
+      {"label": "B2f-top5", "dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5"},
+      {"label": "B2f-ep8", "dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8"}
+    ]
+  },
+  "objective": {"key": "half_B.wf1.wf1", "clean_key": "half_B.wf1.f1_clean", "higher_is_better": true},
+  "rules": {
+    "new_best_delta": 0.0,
+    "band": 0.5,
+    "promote": {"ci_low_gt": 0.0, "clean_drop_le": 0.5},
+    "positive": {"delta_gt": 0.5, "ci_low_gt": 0.0, "clean_drop_le": 0.5}
+  },
+
+  "gpu": {"enabled": true, "max_mem_mib": 1024, "busy_regex": "main_train|b3wave\\.train|local_eval|main_eval|eval_checkpoints",
+          "debounce_s": 600, "debounce_eval_s": 30, "poll_s": 60},
+  "disk_gb": {"train": 30, "smoke": 10, "eval": 5},
+  "timeouts": {"stall_min": 30, "max_run_hours": 10, "eval_step_h": 3, "smoke_min": 45},
+  "retries": {"train_resume": 3, "eval_step": 2, "early_check": 2},
+  "integrity": {"protected": ["SLS_setup/", "scripts/", "configs/", ".claude/", "docs/experiment_log.csv"]},
+
+  "claude": {
+    "bin": "/root/.local/bin/claude",
+    "settings": "scripts/exploop/claude_settings.json",
+    "permission_mode": "auto",
+    "model": null,
+    "max_total_usd": 150,
+    "steps": {
+      "design": {"agent": "exp-designer", "usd": 10, "timeout_min": 30, "attempts": 3},
+      "analyze": {"agent": "exp-analyst", "usd": 20, "timeout_min": 60, "attempts": 3},
+      "summary": {"agent": "exp-analyst", "usd": 15, "timeout_min": 45, "attempts": 2}
+    }
+  },
+
+  "context": {
+    "previous_reports": ["docs/experiments-exploration/20261009_175355_B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234.md",
+                         "docs/experiments-exploration/20261008_232331_B2_wave_summary_and_full_run_recommendation.md"],
+    "summary_template": ["docs/experiments-exploration/20261008_232331_B2_wave_summary_and_full_run_recommendation.md"]
+  },
+
+  "start": {
+    "best": {
+      "label": "B2f",
+      "run_dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623",
+      "readouts": {"merge": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5",
+                   "final": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8"},
+      "registry_ids": {"merge": "B2f-loudnorm-screen", "final": "B2f-loudnorm-ep8"},
+      "argv_from": "config"
+    },
+    "adopt": [
+      {"letter": "a",
+       "run_dir": "SLS_setup/exp/B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234_epoch8_bs8_20261009214846",
+       "launcher": "scripts/run_B3a.sh",
+       "lever_slug": "cjs03",
+       "change": {"set": {"--consistency": ["js"], "--consistency_lambda": ["0.3"], "--consistency_pairs": ["both"], "--batch_size": ["8"]}, "remove": []},
+       "change_vs_ref": "+ --consistency js --consistency_lambda 0.3 --consistency_pairs both (--batch_size 8 = 8 pairs = 16 clips/step)",
+       "rationale": "highest-evidence lever in the roadmap (T3.1, P0); attacks the dominant residual error (noisy bona scored as spoof, a separability problem)",
+       "hypothesis": "making the offline/online RTC twins and independently augmented views agree in output makes the decision invariant to channel / noise / codec nuisance",
+       "predicted_signature": "noisy EER down, noise_only bona->spoof down, heldout / matched bona recall up, clean flat",
+       "falsifier": "delta top-5-merge half_B WF1 vs B2f merge > +0.5 with the paired-bootstrap CI excluding 0 and clean F1 drop <= 0.5 -> promote; within +-0.5 -> null; below -0.5 -> negative",
+       "eval_note": "evaluate with --loudness_norm --loudness_norm_lufs -23; checkpoints are plain ModelSLS state_dicts",
+       "expect": ["^Consistency: js lambda_js=0.3"],
+       "expected_hours": 8}
+    ]
+  }
+}

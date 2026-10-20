@@ -1,0 +1,190 @@
+{
+  "part": "opus_plc",
+  "headline": "opus_plc is implemented: with --aug_opus_plc_p > 0 a codec call can take an in-process libopus 1.3.1 path (Gilbert-Elliott packet loss, decoder PLC, 48 kHz decode + resample_poly) instead of ffmpeg. Default 0.0 returns the B3 augmenter object, so the run is B2f. The in-process packets are byte-identical to the ones ffmpeg writes (21/21 runs), so only the receiver differs. `checks cpu` passes 117/117 in 269 s, and the manifest check shows 0 violations.",
+  "files": [
+    {
+      "path": "SLS_setup/b4wave/opus_plc.py",
+      "purpose": "New. ctypes binding to libopus, loaded on first use only. draw_codec_params makes codecs_augm's draws in the same order; ffmpeg_opus runs codecs_augm's ffmpeg pipeline on pre-drawn values. Also check_ranges, ge_mask, loss_bin, the encoder (configured like ffmpeg 4.2 libopusenc) and a 48 kHz decoder that conceals lost packets with the NULL-payload PLC call. roundtrip_mask and opus_loss_roundtrip destroy encoder and decoder in finally. Selftest with named asserts loads / ctl_roundtrip / plc_not_zero / shape_finite."
+    },
+    {
+      "path": "SLS_setup/b4wave/augment.py",
+      "purpose": "Registers the opus_plc lever (codec slot; counters opus_plc, plc_l0_5 / plc_l5_10 / plc_l10p, fail_opus_plc; filter opus_plc, codec libopus; describe text; header with the libopus version). Adds RTCAugConfigB4 opus_plc_p / opus_loss / opus_burst. _init_opus_plc raises if the codec is off, profiles are random, or a range is out of bounds, then runs the selftest. _lever_opus_plc routes picked calls in-process (ffmpeg with the same draws on failure) and unpicked calls to codecs_augm."
+    },
+    {
+      "path": "SLS_setup/b4wave/train.py",
+      "purpose": "Literal b4.add_argument calls for --aug_opus_plc_p (float 0.0), --aug_opus_loss (float nargs=2, 0.01 0.20) and --aug_opus_burst (float nargs=2, 1.0 4.0), with the plan's help text. validate_b4_args checks the ranges only when p > 0."
+    },
+    {
+      "path": "SLS_setup/b4wave/checks.py",
+      "purpose": "Adds _equiv_opus_plc (plan item 3, plus the levers-off / codec-on no-libopus probe), a codec_draw_order group, an opus_plc group (validation, header, selftest values, GE statistics, PLC only from the first lost packet, real lever with an rng4 replay, loss bins and the 0 0 control, fallback, three-lever chain, zero-loss attribution, packet parity with ffmpeg), _opus_call_timing inside timing, and a dsp_slices --lever opus_plc run plus attribution unit cases. CPU_GROUPS updated."
+    },
+    {
+      "path": "scripts/b4_dsp_slices.py",
+      "purpose": "Report only: opus_plc_reading (falsifiers 1 and 2 with both readouts named, must-not-move guards per readout including matched qq / wechat bona recall from metrics.json breakdowns, ep1 TrainAcc) and --attribution_control MERGE FINAL for falsifier 3. JSON key opus_plc_reading."
+    },
+    {
+      "path": "SLS_setup/b4wave/README.md",
+      "purpose": "Flag rows marked implemented; new section 'Lever opus_plc' (mechanism, rng4 draw order, ffmpeg 4.2 pre-skip note, fallback, selftest, counters, header, off behaviour, zero-loss result, cost, readout); check-table rows; libopus restart note."
+    },
+    {
+      "path": "rdloop/B4/impl/progress.md",
+      "purpose": "opus_plc part: what exists, measurements, decisions and deviations, final results."
+    },
+    {
+      "path": "rdloop/B4/scratch/opus_probe.py",
+      "purpose": "Probe: selftest, packet parity with ffmpeg's Ogg stream, aligned SNR, CPU-s per call."
+    },
+    {
+      "path": "rdloop/B4/scratch/checks_opus_block.py",
+      "purpose": "The opus check block before it was spliced into checks.py."
+    },
+    {
+      "path": "rdloop/B4/scratch/toy_trainer_opus.py",
+      "purpose": "Toy model driven through b4wave.train.main() in modes off / opus / ctrl / all3 (wiring check, not training)."
+    }
+  ],
+  "levers": [
+    {
+      "id": "opus_plc",
+      "flags": [
+        {
+          "name": "--aug_opus_plc_p",
+          "default": "0.0"
+        },
+        {
+          "name": "--aug_opus_loss",
+          "default": "0.01 0.20"
+        },
+        {
+          "name": "--aug_opus_burst",
+          "default": "1.0 4.0"
+        }
+      ],
+      "implemented": true,
+      "header_regex": [
+        "^B4 Opus PLC: on p="
+      ],
+      "where": [
+        "SLS_setup/b4wave/opus_plc.py:draw_codec_params",
+        "SLS_setup/b4wave/opus_plc.py:ffmpeg_opus",
+        "SLS_setup/b4wave/opus_plc.py:ge_mask",
+        "SLS_setup/b4wave/opus_plc.py:roundtrip_mask",
+        "SLS_setup/b4wave/opus_plc.py:opus_loss_roundtrip",
+        "SLS_setup/b4wave/opus_plc.py:selftest",
+        "SLS_setup/b4wave/augment.py:register(LeverSpec opus_plc)",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._init_opus_plc",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._lever_opus_plc",
+        "SLS_setup/b4wave/train.py:build_parser",
+        "SLS_setup/b4wave/train.py:validate_b4_args",
+        "SLS_setup/b4wave/checks.py:_equiv_opus_plc",
+        "SLS_setup/b4wave/checks.py:check_codec_draw_order",
+        "SLS_setup/b4wave/checks.py:check_opus_plc",
+        "SLS_setup/b4wave/checks.py:_opus_call_timing",
+        "scripts/b4_dsp_slices.py:opus_plc_reading"
+      ],
+      "deviations": "(1) Zero-loss attribution bar. It is applied per profile on energies pooled over the 3 clips. The plan says 'on every profile', and the v2 table it cites has one value per profile. Every clip x profile value is printed. Applied per clip, the check FAILS on one clip (offline/zh Train_038736): qq 14.78 dB and wechat 12.96 dB against the 15 dB floor. Pooled, the minimum margin is +1.22 dB (wechat), against v2's 2.0. (2) VBR constraint is explicitly set to 0, which is what ffmpeg's '-vbr on' does (libopus defaults to constrained VBR); the byte-identical packets confirm it. (3) Loss / burst ranges are validated in validate_b4_args only when p > 0 ('Read only when p > 0'); the augmenter init re-checks them. (4) Readout addition, not in the plan's section 3 CLI list: opus_plc_reading and --attribution_control. It is a report only and changes no verdict. (5) Checks added beyond the plan: packet parity with ffmpeg's Ogg stream, a draw-by-draw rng4 replay, PLC only from the first lost packet, GE statistics. (6) data.py is in the plan's file list but needed no change; core already wired the B4 factory."
+    }
+  ],
+  "tests": [
+    {
+      "name": "b4wave cpu checks",
+      "command": "cd SLS_setup && python -m b4wave.checks cpu",
+      "device": "cpu",
+      "what": "All CPU groups, including the new codec_draw_order and opus_plc groups, the opus items in augmenter, the opus timing row and the opus dsp_slices run."
+    },
+    {
+      "name": "opus_plc group",
+      "command": "cd SLS_setup && python -m b4wave.checks opus_plc",
+      "device": "cpu",
+      "what": "Validation, header (plan expect_regex), describe / meta keys, selftest asserts with values, GE statistics, PLC only after the first lost packet, real lever at p=0.3 (rate, bins, unpicked clips bit-identical to B3, rng4 replay, deterministic), loss bins and the 0 0 control, fallback, three-lever chain, zero-loss attribution, encoder parity with ffmpeg packets."
+    },
+    {
+      "name": "codec draw order",
+      "command": "cd SLS_setup && python -m b4wave.checks codec_draw_order",
+      "device": "cpu",
+      "what": "draw_codec_params leaves rng.bit_generator.state where codecs_augm leaves it (1,000 start states, same ffmpeg commands); ffmpeg_opus on pre-drawn values is bit-identical to codecs_augm (14 real calls)."
+    },
+    {
+      "name": "augmenter equivalence",
+      "command": "cd SLS_setup && python -m b4wave.checks augmenter",
+      "device": "cpu",
+      "what": "Items 1 and 2 (levers off = B3 object; forced B4 bit-identical); opus item 4 with the codec on (fresh process, no libopus mapped); item 3 at opus_plc_p=1.0 (ffmpeg stub bit-identical to B3; real path parent stage:* and codec:<app> counts = B3)."
+    },
+    {
+      "name": "gpu regression + lever forward/backward",
+      "command": "cd SLS_setup && python -m b4wave.checks gpu --ckpt exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/ckpt/epoch_8_dev_loss_0.144168.pth",
+      "device": "gpu",
+      "what": "B2f checkpoint loads key-exact with logits equal to ModelSLS; lever_forward_backward(opus_plc) on training clips with p=1 gives a finite loss and grads (generic, picks up the registered lever)."
+    },
+    {
+      "name": "toy trainer wiring",
+      "command": "cd SLS_setup && python -B ../rdloop/B4/scratch/toy_trainer_opus.py $TMPDIR/toy_opus opus",
+      "device": "cpu",
+      "what": "End to end through b4wave.train.main() with a toy model: selftest line, header, counters in the B3 aug line, per-class B4 line, config b4_levers, metrics b4 row, 'Experiment saved to:'."
+    }
+  ],
+  "cpu_results": [
+    {
+      "command": "cd SLS_setup && python -m b4wave.checks cpu",
+      "rc": 0,
+      "summary": "117/117 checks passed in 269 s (no FAIL, SKIP or WARN)."
+    },
+    {
+      "command": "cd SLS_setup && python -B -m b4wave.checks opus_plc",
+      "rc": 0,
+      "summary": "17/17. Header 'B4 Opus PLC: on p=0.3 loss=0.01..0.20 burst=1..4 decode=48k+resample_poly libopus=libopus 1.3.1'. ctl round trip 20/20, lookahead 104. First concealed 20 ms -21.53 dBFS (tone -20.00). At p=0.3, 22/100 calls in-process; 78 clips bit-identical to B3; rng4 replay exact. Bins 98/76/126 over 300 round trips. Zero-loss pooled margin +1.22 dB minimum (wechat); per clip, Train_038736 qq 14.78 and wechat 12.96 dB are below the floor (printed). Packet parity 21/21."
+    },
+    {
+      "command": "cd SLS_setup && python -B -m b4wave.checks codec_draw_order",
+      "rc": 0,
+      "summary": "2/2: 1,000 start states with equal end state and identical commands; 14 real ffmpeg calls with equal state and bit-identical output."
+    },
+    {
+      "command": "cd SLS_setup && python -B -m b4wave.checks augmenter",
+      "rc": 0,
+      "summary": "21/21, including opus_levers_off_codec_on_no_libopus_handle, opus_plc_ffmpeg_stub_bit_identical_to_b3 and opus_plc_real_parent_stream_untouched."
+    },
+    {
+      "command": "cd SLS_setup && python -B -m b4wave.checks timing",
+      "rc": 0,
+      "summary": "5/5. Levers off 0.3022 CPU-s/clip; opus_plc forced on 0.1606, projected epoch factor 0.859 (plan 0.85). Per call: in-process 0.1239 vs ffmpeg 0.2738 CPU-s."
+    },
+    {
+      "command": "cd SLS_setup && python -B -m b4wave.checks dsp_slices",
+      "rc": 0,
+      "summary": "14/14. The --lever opus_plc run on B2f vs itself gives DiD* +0.57; falsifier 1 fires; guards hold (PLC bounds 26/25; qq/wechat recall 61.62/71.15). Attribution unit cases pass."
+    },
+    {
+      "command": "cd SLS_setup && python -m b4wave.train --help",
+      "rc": 0,
+      "summary": "The B4 wave group shows --aug_opus_plc_p, --aug_opus_loss LO HI and --aug_opus_burst LO HI with the plan's help text."
+    },
+    {
+      "command": "cd SLS_setup && python -m py_compile b4wave/checks.py b4wave/augment.py b4wave/opus_plc.py b4wave/train.py; python -B -c \"import ast; ast.parse(open('../scripts/b4_dsp_slices.py').read())\"",
+      "rc": 0,
+      "summary": "Compiles / parses."
+    },
+    {
+      "command": "python -B -c 'rdlib.check_manifest(repo, rdloop/B4/isolation/manifest.json, cycle.json, rdloop/B4)'",
+      "rc": 0,
+      "summary": "0 violations over 138 protected files."
+    },
+    {
+      "command": "cd SLS_setup && python -B ../rdloop/B4/scratch/toy_trainer_opus.py $TMPDIR/toy_{opus,ctrl,all3} {opus,ctrl,all3}",
+      "rc": 0,
+      "summary": "opus: opus_plc=12 of 40 codec calls, all 3 bins, all 7 apps. ctrl: loss=0.00..0.00, all calls in plc_l0_5. all3: three selftests and three headers. Config b4_levers, metrics b4 row and 'Experiment saved to:' present in each."
+    }
+  ],
+  "equivalence_argument": "With --aug_opus_plc_p 0.0 the lever is not in active_levers(args), so build_rtc_augmenter_b4 returns build_rtc_augmenter_b3(args). That is the B3 object itself: every codec call is utils.rtc_augment.codecs_augm with the same parent draws, there is no rng4, and describe(), meta_keys, the config fields and the header lines are unchanged. b4_config_from_args reads arg_fields only for active levers, and validate_b4_args checks the ranges only when p > 0, so the loss / burst flags are not read. b4wave.opus_plc is imported only inside _init_opus_plc and _opus_header, and the library loads only on the first _lib() call. A fresh-process probe with the levers off and the codec on finds neither b4wave.opus_plc nor libopus mapped. The model is untouched. When the lever is on, the parent stream still matches B2f: (a) draw_codec_params makes codecs_augm's draws in the same order (same end state on 1,000 start states and 14 real calls, same ffmpeg commands, bit-identical output); (b) at opus_plc_p=1.0 with the round trip replaced by ffmpeg on the pre-drawn profile, the outputs are bit-identical to B3; (c) with the real path the parent stage:* and codec:<app> counts equal B3's, and at p=0.3 every unpicked clip is bit-identical to B3. All B4 draws (pick, loss, burst, one random() per packet) come from rng4 = default_rng([seed, pid, 0xB4]), replayed exactly.",
+  "addressed": [],
+  "open_issues": [
+    "Zero-loss attribution passes only per profile. With the bar applied per clip it fails on one clip (offline/zh Train_038736): qq 14.78 dB and wechat 12.96 dB against the 15 dB floor at integer alignment; sub-sample alignment raises wechat only to 14.18. Pooled over the 3 clips, the minimum margin is +1.22 dB (wechat), below v2's 2.0. The packets are byte-identical to ffmpeg's, so the residual is the plan's listed SILK-layer decoder / resampler difference (libopus vs ffmpeg's native decoder and swresample). The reviewer should confirm the per-profile reading.",
+    "ffmpeg 4.2 writes the Ogg pre-skip at the encoder rate (104) instead of 48 kHz (312). The ffmpeg path, i.e. all B2f codec audio, therefore decodes 66-71 samples (about 4.3 ms) late and finalize drops the clip's last ~69 samples. The in-process path trims 3 x look-ahead as the plan says and lines up with the input (lag -4..+1). So picked and unpicked clips differ by a constant ~69-sample offset. It applies to both classes equally, and the attribution control arm ('--aug_opus_plc_p 0.3 --aug_opus_loss 0 0') covers it. Kept as planned, documented in the README.",
+    "LOC is above the plan estimate of 280: opus_plc.py has 311 code lines (binding 84, round trip 142, selftest 85), plus about 55 in augment and 17 in train, so about 383 excluding checks and readout. The readout adds about 90 and the checks block about 450. Whether this meets max_loc_per_lever 400 depends on what the limit counts.",
+    "The readout gained opus_plc_reading and --attribution_control, which are not in the plan's section 3 CLI list. They are report only and change no verdict.",
+    "A container restart can wipe the system libopus together with ffmpeg. With the lever on, start-up then raises OSError (no silent pass-through). Optional hardening: conda-forge libopus in rtc-sdd, found through {sys.prefix}/lib/libopus.so.0.",
+    "GPU checks and smoke runs were not run here (CPU-only step). checks gpu covers opus_plc generically."
+  ],
+  "needs_user": [],
+  "progress_note": "opus_plc is done (implement_opus_plc a0); core, apm_ns and dtx_gate were already done, so all IMPLEMENT parts are complete. Added opus_plc.py, the lever registration and methods in augment.py, three flags in train.py, the codec_draw_order and opus_plc check groups plus the augmenter / timing / dsp_slices additions, the readout's opus_plc decision lines and the README section. Verified: checks cpu 117/117 in 269 s; manifest 0 violations; toy trainer passes in modes opus / ctrl / all3. Left: supervisor review, GPU checks, smoke. Details are in rdloop/B4/impl/progress.md."
+}

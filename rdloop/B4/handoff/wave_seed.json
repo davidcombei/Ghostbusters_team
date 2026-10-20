@@ -1,0 +1,144 @@
+{
+  "_research": {
+    "cycle": "B4",
+    "module": "b4wave",
+    "module_sha256": "d163f934ac7f230cf70603c1c2eb5c51510441f5f2578c5da9dea974a167c92a",
+    "plan": "rdloop/B4/plan_agreed.md",
+    "summary": "rdloop/B4/FINAL_SUMMARY.md",
+    "created": "2026-10-18 11:34:39"
+  },
+  "trainer": {
+    "entry": [
+      "-m",
+      "b4wave.train"
+    ],
+    "flag_sources": [
+      "SLS_setup/b4wave/train.py"
+    ]
+  },
+  "search_space": {
+    "allowed_add": [
+      "--aug_apm_ns_levels",
+      "--aug_apm_p",
+      "--aug_dtx_fill",
+      "--aug_dtx_p",
+      "--aug_opus_burst",
+      "--aug_opus_loss",
+      "--aug_opus_plc_p"
+    ],
+    "coupled_add": [
+      [
+        "--aug_apm_p",
+        "--aug_apm_ns_levels"
+      ],
+      [
+        "--aug_dtx_p",
+        "--aug_dtx_fill"
+      ],
+      [
+        "--aug_opus_plc_p",
+        "--aug_opus_loss",
+        "--aug_opus_burst"
+      ]
+    ]
+  },
+  "lever_queue": [
+    {
+      "id": "apm_ns",
+      "set": {
+        "--aug_apm_p": [
+          "0.3"
+        ]
+      },
+      "targets": "G1: the heldout offline NS-vs-no-NS bona contrast (full set 276/106, B2f gap 0.85, null-panel mu +0.32 sd 0.27; shown at DiD <= -0.22 plus placebo rank) and heldout F1 87.92/88.27. Guards: clean 97.60/97.69, matched 91.22/91.24, NS spoof misses <= 29.",
+      "expect": [
+        "^B4 APM NS: on p="
+      ],
+      "hypothesis": "B2f reads suppressor artefacts on noisy speech as synthesis. Within offline sources, NS-treated heldout bona trails untreated bona: 69.2 vs 75.5 (full set, final), deficit 17.3 clips, logit gap 0.85, almost all afftdn (computed). Against the 9-run null panel this deficit is robust and larger: a typical null run's NS gap is 1.17, and B2f's 0.85 is the third smallest of 10 runs. B2f never saw noisy speech through a suppressor and never a simulated DSP stage. Training both classes through WebRTC NS on 30% of clips makes suppressor artefacts class-neutral, and the effect transfers to the unseen afftdn/anlmdn suppressors.",
+      "predicted_signature": "Read with scripts/b4_dsp_slices.py against B2f's same readout, calibrated on the null panel (B2b-B2e, B3a-B3e at final readouts; NS DiD mu +0.32, sd 0.27, min -0.03). Mechanism shown requires all of, on offline-with-NS vs offline-without-NS (full set, final): (a) DiD <= -0.22 (= min(mu-2sd, panel min, mu-0.4G)); (b) bootstrap CI upper bound < +0.32; (c) clip DiD >= -1.3 (panel clip mu -8.2 + 0.4 x 17.3); (d) half-B DiD < +0.57 (final) and < +0.23 (merge); (e) placebo: NS DiD below the dtx_gate and opus_plc arms' NS DiD. Secondary: afftdn-vs-anlmdn DiD < -0.84 (strong if <= -1.70). Outcome: heldout F1 up >= 0.8 from 87.92/88.27; expected WF1 delta 0 to +0.6, spill-over needed. Must not move: clean F1 within 0.5 of 97.60/97.69; matched F1 down <= 0.5 from 91.22/91.24; R_spoof within 0.5 on every set; full-set offline-NS spoof misses <= 29 (baseline 18/18); ep1 TrainAcc within 2 of 87.36.",
+      "falsifier": "(1) Mechanism refuted (NS DiD* >= 0, i.e. DiD >= +0.32: no better than an average null retrain) AND heldout F1 delta < +0.5 on both readouts: WebRTC NS exposure does not transfer. Drop. (2) WF1 delta < -0.5 with matched F1 down > 1.0: losing raw-noise exposure costs more than it buys. Drop; one lower-p retry only if the calibrated mechanism verdict was 'shown'. (3) Full-set offline-NS spoof misses > 29 on either readout: the lever taught 'NS => bona'. Drop. (4) Shared under-fit: ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752 (1.5 x 0.050114, train.log l.15), together with heldout bona recall down.",
+      "sources": [
+        "https://arxiv.org/html/2607.17761",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://arxiv.org/abs/2603.14033",
+        "https://github.com/strands-labs/pywebrtc-audio"
+      ]
+    },
+    {
+      "id": "dtx_gate",
+      "set": {
+        "--aug_dtx_p": [
+          "0.3"
+        ]
+      },
+      "targets": "G3: saturated noisy bona FA by pinned source non-speech tertile (full set 66/76/107 final; criterion (ii) panel mu -10.2, max 0) and the heldout offline VAD-vs-no-VAD bona contrast (full set 136/246, panel mu -0.57 sd 0.24), split by fill. Guards: clean F1, noisy spoof misses 24/23, VAD spoof misses 15/13.",
+      "expect": [
+        "^B4 DTX gate: on p="
+      ],
+      "hypothesis": "Part of the saturated core is 'gated or non-speech content => spoof'. sil_only and noise_only bona probes are 100% spoof. On the full set, saturated noisy bona FA concentrate in pause-rich source clips: 107 in the high non-speech tertile vs 66 in the low (final, pinned frame-count cuts). The concentration is even stronger in every null-panel run (criterion (ii) panel mean -10.2), so it is a property of the model family. Offline VAD-gated heldout bona trails ungated bona (66.2 vs 73.6, gap 1.05; typical null gap 0.48, mostly in the CNG half). Class-independent DTX gating on 30% of clips makes gated pauses class-neutral.",
+      "predicted_signature": "Mechanism shown requires both. (ii) Anchor, unchanged: saturated-FA (p >= 0.99) drop_high - drop_low >= +5 clips on the full set, final (pinned cuts: k of 201 frames <= 32 / 33-50 / >= 51; baseline 107 vs 66), and >= 0 on half B for both readouts. Null panel: mu -10.2, sd 5.8, max 0 (full); max -5/-2 (half B final/merge); no null run passes. (i') VAD contrast (offline with/without VAD, full set, final) at least directional: DiD < -0.57 (re-centred on panel mu -0.57, sd 0.24), and the VAD DiD below the apm_ns and opus_plc arms' VAD DiD. 'Strong' if the VAD contrast is shown: DiD <= -1.05, CI upper < -0.57, clip DiD >= +9.4, half-B DiD < -0.23 final / < -0.34 merge, placebo; this needs the whole typical gap closed (z -2.00), so it is not required. Report: VAD split by fill. A gain confined to vad:zero (zero-fill DiD* <= -0.42 with CNG-fill DiD* >= 0) is near-in-distribution; transfer needs CNG-fill DiD < -0.38. Outcome: sil_only bona mean dP below +0.8929/+0.8985; half-B saturated FA down from 136/133; expected WF1 delta 0 to +0.5. Must not move: clean F1 within 0.5; half-B noisy spoof misses <= 36/35; full-set offline-VAD spoof misses <= 25/22; probe_padded bona flip up by no more than 2 clips from 3.74/5.35%; R_spoof within 0.5.",
+      "falsifier": "(1) Mechanism refuted: VAD DiD* >= 0 (DiD >= -0.57) AND drop_high - drop_low <= -10.2 (no better than the panel mean) on the full set, final, with WF1 delta < +0.5. Gating is not what drives the core. Drop. (2) Clean F1 down > 0.5, or a spoof-miss guard broken (noisy > 36/35, VAD slice > 25/22): the gating pattern carries class information. Drop. (3) Shared under-fit: ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752, together with heldout bona recall down.",
+      "sources": [
+        "https://arxiv.org/html/2309.11827",
+        "https://arxiv.org/abs/2309.11827",
+        "https://arxiv.org/abs/2106.12914",
+        "https://arxiv.org/html/2607.17761",
+        "https://github.com/wiseman/py-webrtcvad"
+      ]
+    },
+    {
+      "id": "opus_plc",
+      "set": {
+        "--aug_opus_plc_p": [
+          "0.3"
+        ]
+      },
+      "targets": "G1 outcome test: heldout F1 and WF1. Mechanism readout: heldout online PLC-vs-no-PLC bona contrast (full set 114/254; panel mu -0.57, sd 0.41), capped at 'directional'. Guards: matched F1 and qq/wechat bona recall, PLC spoof misses 16/15.",
+      "expect": [
+        "^B4 Opus PLC: on p="
+      ],
+      "hypothesis": "Concealment artefacts are read as synthesis. Exposing both classes to libopus PLC under bursty loss (ADD-C's 1-20% range) on 30% of codec calls makes concealment class-neutral, and heldout's repeat-PLC slice and heldout F1 improve. The local premise is weak. On B2f the online PLC deficit is 67.5 vs 75.6 (gap 0.95), but against the null panel the typical gap is only 0.38 (10-run mean 0.44, sd 0.43, range -0.16 to +0.98). It is also not dose-dependent: high-loss bona is more bona-ward than low-loss bona in 8 of 10 runs. The arm is therefore a pre-registered outcome test of ADD-C's result in the RTC setting (B2f never trained on a dropped packet).",
+      "predicted_signature": "Mechanism capped at 'directional': online PLC DiD* < 0, i.e. DiD < -0.57 (panel mu -0.57, sd 0.41), and the PLC DiD below the apm_ns and dtx_gate arms' PLC DiD. 'Shown' is not claimed: its bar (DiD <= -1.39) would need PLC bona to end 0.44 logit more bona-ward than no-PLC bona (216% of the typical gap; closing the whole gap is z -0.93). Report only: the offline PLC contrast and bona logit/recall by realised-loss bin. Outcome: heldout F1 up >= 0.5; expected WF1 delta 0 to +0.4. Must not move: matched F1 down <= 0.5; matched qq and wechat bona recall each down by no more than 6 points (B2f merge vs final already differ by 5.05/5.77); full-set PLC spoof misses <= 26/25 (baseline 16/15); clean F1 within 0.5; ep1 TrainAcc within 2.",
+      "falsifier": "(1) Mechanism refuted: online PLC DiD* >= 0, i.e. DiD >= -0.57, AND heldout F1 delta < +0.5: libopus PLC does not carry over. Drop. (2) WF1 delta < -0.5 with the shared under-fit signature (ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752): a B3d-type codec-side under-fit. Drop. (3) Attribution control, pre-registered: if the arm is positive on WF1, the coupled control '--aug_opus_plc_p 0.3 --aug_opus_loss 0 0' runs before promotion. If it alone gives >= half of the arm's WF1 gain, the gain is credited to the decoder path, not PLC. That control also serves as an extra placebo arm for the NS and VAD contrasts.",
+      "sources": [
+        "https://arxiv.org/html/2504.12423v2",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://github.com/orion-labs/opuslib",
+        "https://github.com/orion-labs/opuslib/blob/master/opuslib/classes.py",
+        "https://arxiv.org/abs/2107.12018"
+      ]
+    }
+  ],
+  "lever_notes": [
+    "apm_ns: With probability p (rng4 = default_rng([seed, pid, 0xB4])), the post-stage audio goes through one pass of pywebrtc_audio's standalone NoiseSuppressor (16 kHz mono, NS only: no high-pass filter, no AGC, no AEC). The suppression target is drawn from --aug_apm_ns_levels (dB -> backend level 0-3). A fre",
+    "dtx_gate: With probability p (rng4), the clip goes through webrtcvad.Vad(mode) frame by frame, with mode in {1,2,3} and frame in {10,20,30} ms drawn per clip. The speech mask is dilated forward by a hangover of U(40,200) ms. Non-speech frames are filled with exact zeros or with order-10 LPC comfort noise (RMS",
+    "opus_plc: The codec stage fires on the parent draw (p=1.0 in B2f). For a clip picked by rng4, draw_codec_params(rng) makes the parent's app/kbps/cutoff/frame draws in exactly codecs_augm's order. A ctypes-bound system libopus 1.3.1 encoder (16 kHz mono; same bitrate; max bandwidth from the cutoff; same frame "
+  ],
+  "early_check": {
+    "expect_add": [
+      "^b4wave: "
+    ]
+  },
+  "eval": {
+    "profile": "sls_local17"
+  },
+  "gpu": {
+    "busy_regex_add": "b\\d+wave\\.(train|checks)"
+  },
+  "smoke": "off",
+  "start": {
+    "best": {
+      "label": "B2f",
+      "run_dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623",
+      "readouts": {
+        "merge": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5",
+        "final": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8"
+      },
+      "registry_ids": {
+        "merge": "B2f-loudnorm-screen",
+        "final": "B2f-loudnorm-ep8"
+      },
+      "argv_from": "config"
+    }
+  }
+}

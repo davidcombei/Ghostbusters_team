@@ -1,0 +1,2 @@
+/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/runs/B4smk_apmns_s1234_epoch1_bs16_20261018112925/ckpt/epoch_1_dev_loss_1.422931.pth
+/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/runs/B4smk_apmns_s1234_epoch1_bs16_20261018112925/ckpt/epoch_1_dev_loss_1.422931.pth

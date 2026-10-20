@@ -1,0 +1,203 @@
+{
+  "part": "dtx_gate",
+  "headline": "dtx_gate is implemented as approved and all 90 CPU checks pass. It does webrtcvad DTX gating (mode 1-3, 10/20/30 ms frames, forward hangover 40-200 ms) with an exact-zero or order-10 LPC comfort-noise fill, on the B4 rng4 stream between NS and the codec. With --aug_dtx_p 0.0 the base B3 augmenter is returned unchanged and webrtcvad is never imported. The projected loader cost is about 1.00 against a 1.05 bar.",
+  "files": [
+    {
+      "path": "SLS_setup/b4wave/dsp_dtx.py",
+      "purpose": "New file. The wrtc_dtx op: per-clip parameter draws (draw_params), the webrtcvad speech mask with forward hangover (vad_speech, gated_mask), gate() with 5 ms raised-cosine fades and zero or LPC comfort-noise fill (solve_toeplitz + lfilter, level -6..0 dB, floor -70 dBFS), wrtc_dtx(), gated_bin(), and a start-up selftest with 7 named asserts"
+    },
+    {
+      "path": "SLS_setup/b4wave/augment.py",
+      "purpose": "Registers the dtx_gate LeverSpec after apm_ns (meta keys wrtc_dtx_zero/cng, dtx_g0/g1_20/g20_40/g40p, fail_wrtc_dtx; reserve filter wrtc_dtx; plan header). Adds RTCAugConfigB4.dtx_p / dtx_fill, _init_dtx_gate (lazy import + selftest line) and _lever_dtx_gate (rng4 only)"
+    },
+    {
+      "path": "SLS_setup/b4wave/train.py",
+      "purpose": "Adds --aug_dtx_p (0.0) and --aug_dtx_fill (mix, choices mix/zero/cng) to the 'B4 wave' group as literal b4.add_argument calls, with the plan's help text"
+    },
+    {
+      "path": "SLS_setup/b4wave/checks.py",
+      "purpose": "Adds the identity_dtx stub, _equiv_dtx_gate (plan item 3), check_dtx, check_dtx_balance, a dtx_gate run and fill-reading unit cases in check_dsp_slices; CPU_GROUPS gains dtx and dtx_balance"
+    },
+    {
+      "path": "scripts/b4_dsp_slices.py",
+      "purpose": "Adds vad_fill_reading(), the plan's report-only reading of the VAD contrast split by fill (near-in-distribution vs transfer). Printed and stored in the JSON when --lever dtx_gate; not a verdict rule"
+    },
+    {
+      "path": "SLS_setup/b4wave/README.md",
+      "purpose": "Flag rows set to implemented; new section 'Lever dtx_gate' (mechanism, draw order, selftest values, counters, header, balance, readout); checks table rows"
+    },
+    {
+      "path": "rdloop/B4/impl/progress.md",
+      "purpose": "dtx_gate marked done, with what exists, measurements, decisions and what is left (opus_plc)"
+    },
+    {
+      "path": "rdloop/B4/scratch/dtx_probe.py",
+      "purpose": "Probe of webrtcvad behaviour (internal overhang, tone detection, speed)"
+    },
+    {
+      "path": "rdloop/B4/scratch/toy_trainer_dtx.py",
+      "purpose": "Toy-model run of b4wave.train.main() with --aug_dtx_p 0.3 (modes off|dtx|both)"
+    },
+    {
+      "path": "rdloop/B4/scratch/checks_dtx_block.py",
+      "purpose": "The dtx checks block as written before it was spliced into checks.py"
+    }
+  ],
+  "levers": [
+    {
+      "id": "dtx_gate",
+      "flags": [
+        {
+          "name": "--aug_dtx_p",
+          "default": "0.0"
+        },
+        {
+          "name": "--aug_dtx_fill",
+          "default": "mix"
+        }
+      ],
+      "implemented": true,
+      "header_regex": [
+        "^B4 DTX gate: on p=",
+        "^B4 DTX gate selftest: PASS "
+      ],
+      "where": [
+        "SLS_setup/b4wave/dsp_dtx.py:wrtc_dtx",
+        "SLS_setup/b4wave/dsp_dtx.py:gate",
+        "SLS_setup/b4wave/dsp_dtx.py:draw_params",
+        "SLS_setup/b4wave/dsp_dtx.py:selftest",
+        "SLS_setup/b4wave/augment.py:register(LeverSpec dtx_gate)",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._init_dtx_gate",
+        "SLS_setup/b4wave/augment.py:RTCAugmenterB4._lever_dtx_gate",
+        "SLS_setup/b4wave/train.py:build_parser",
+        "SLS_setup/b4wave/checks.py:_equiv_dtx_gate",
+        "SLS_setup/b4wave/checks.py:check_dtx",
+        "SLS_setup/b4wave/checks.py:check_dtx_balance",
+        "scripts/b4_dsp_slices.py:vad_fill_reading"
+      ],
+      "deviations": "No change to the mechanism. Choices the plan left open, and additions: (1) The hangover is applied per sample (round(hang_ms x 16) samples), so U(40,200) ms holds exactly at every frame size. The 5 ms raised-cosine fades lie inside the gated runs, so kept audio is bit-identical; clip edges are not faded. (2) The CNG level is the RMS of the gated samples; the LPC uses the masked autocorrelation plus a 1e-6 white-noise correction on lag 0; stability is checked with np.roots; digital silence falls back to flat noise; 512 warm-up samples are discarded. (3) The autocorrelation lags use elementwise sums instead of np.dot. np.dot wakes numpy's multi-threaded, busy-waiting OpenBLAS, which raised the measured cost of one call from 0.007 to 0.055 CPU-s. The numbers are the same up to rounding. (4) Bin edges, which the plan only names: dtx_g0 < 1 %, dtx_g1_20 [1, 20) %, dtx_g20_40 [20, 40) %, dtx_g40p >= 40 %. (5) The selftest adds two asserts to the plan's four: speech_kept and cng_colour (the LPC colour is what separates our CNG from the held-out white CNG). The selftest also prints a 'B4 DTX gate selftest: PASS ...' line, as apm_ns does; it does not match the expect_regex. (6) dtx_balance reads '200+200' as 200 bona + 200 spoof (the plan says 'per class'). It uses two conditions, the loaded clip and after the B3 acoustic stage, and adds a forced-mode breakdown. (7) b4_dsp_slices.py now prints the plan's report-only VAD-by-fill reading for dtx_gate; the verdict rules are unchanged. data.py needed no change."
+    }
+  ],
+  "tests": [
+    {
+      "name": "dtx",
+      "command": "cd SLS_setup && python -m b4wave.checks dtx",
+      "device": "cpu",
+      "what": "Bad fill / p rejected; fill unread at p=0; exact plan header + expect_regex; describe/meta keys; the 7 named selftest asserts with measured values; real gate at p=0.3 on 200 clips reproduces the documented rng4 draw order bit for bit (parent counts = B3); fill zero / cng only; DTX -> codec chain; apm_ns(identity) -> dtx_gate order on one rng4 stream; edge cases (digital silence, clip shorter than a frame, 8 kHz, 22.05 kHz -> fail_wrtc_dtx pass-through)"
+    },
+    {
+      "name": "augmenter (incl. _equiv_dtx_gate)",
+      "command": "cd SLS_setup && python -m b4wave.checks augmenter",
+      "device": "cpu",
+      "what": "Plan items 1-2 (levers off = the B3 object; forced B4 bit-identical) and item 3 for dtx_gate at dtx_p=1.0, codec off (200 clips) and on (10 clips). Identity gate: outputs bit-identical to B3 and parameters = rng4 draws. Real webrtcvad: parent stage/codec counts = B3, every clip processed"
+    },
+    {
+      "name": "imports",
+      "command": "cd SLS_setup && python -m b4wave.checks imports",
+      "device": "cpu",
+      "what": "Plan item 4: after the levers-off build and 20 clips in a fresh process, neither webrtcvad nor b4wave.dsp_dtx is imported"
+    },
+    {
+      "name": "dtx_balance",
+      "command": "cd SLS_setup && python -m b4wave.checks dtx_balance",
+      "device": "cpu",
+      "what": "Realised gated fraction per class on 200 bona + 200 spoof training clips (loaded clip and after the B3 stage, drawn params + forced modes); DTX_BALANCE WARN if the class means differ by > 0.05"
+    },
+    {
+      "name": "dsp_slices",
+      "command": "cd SLS_setup && python -m b4wave.checks dsp_slices",
+      "device": "cpu",
+      "what": "Pinned tertile table and plan tables reproduced on B2f; --lever dtx_gate run prints the VAD-by-fill report; vad_fill_reading unit cases"
+    },
+    {
+      "name": "timing",
+      "command": "cd SLS_setup && python -m b4wave.checks timing",
+      "device": "cpu",
+      "what": "Projected saturated-loader epoch factor of dtx_gate at p=0.3 (smoke bar 1.05, limit 1.3)"
+    },
+    {
+      "name": "cpu (all groups)",
+      "command": "cd SLS_setup && python -m b4wave.checks cpu",
+      "device": "cpu",
+      "what": "Every CPU group: module, flags, augmenter, reserve_names, imports, trainer, data, apm, apm_balance, dtx, dtx_balance, timing, dsp_slices"
+    },
+    {
+      "name": "gpu lever forward/backward",
+      "command": "cd SLS_setup && python -m b4wave.checks gpu --ckpt exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/ckpt/epoch_8_dev_loss_0.144168.pth",
+      "device": "gpu",
+      "what": "Generic check, now covering dtx_gate automatically: B2f checkpoint key-exact with identical logits with levers off; with aug_dtx_p=1.0, forward + backward on lever-augmented training clips with finite loss and gradients"
+    }
+  ],
+  "cpu_results": [
+    {
+      "command": "python -m py_compile b4wave/{__init__,augment,checks,data,dsp_apm,dsp_dtx,train}.py (+ ast.parse of scripts/b4_dsp_slices.py, to avoid writing a pyc under scripts/)",
+      "rc": 0,
+      "summary": "all compile; script parses"
+    },
+    {
+      "command": "python -m b4wave.train --help",
+      "rc": 0,
+      "summary": "The 'B4 wave' group lists --aug_dtx_p and --aug_dtx_fill {mix,zero,cng} with the plan's help text"
+    },
+    {
+      "command": "python -m b4wave.checks flags",
+      "rc": 0,
+      "summary": "7/7 PASS. Defaults equal the plan (--aug_dtx_p 0.0, --aug_dtx_fill mix); registry is [apm_ns, dtx_gate]; parsing the base argv gives b3wave's 100 args unchanged"
+    },
+    {
+      "command": "python -m b4wave.checks dtx",
+      "rc": 0,
+      "summary": "17/17 PASS. Selftest: gated fraction 0.343-0.491 (gap share 0.556), 0 tone samples changed, fully gated zero-fill samples exactly 0, CNG level -0.015..+0.020 dB of target, CNG colour within 0.14 dB of the content, tone clip unchanged; 1.2 CPU-s. Real gate at p=0.3: 200/200 outputs match the rng4 replay, 58 clips processed (rate 0.290), fail 0"
+    },
+    {
+      "command": "python -m b4wave.checks augmenter",
+      "rc": 0,
+      "summary": "18/18 PASS, including dtx_identity_parent_stream_untouched (codec off/on: 200/200 and 10/10 identical to B3, parameters = rng4 draws) and dtx_real_parent_stream_untouched (parent counts = B3, all clips processed, fail 0)"
+    },
+    {
+      "command": "python -m b4wave.checks imports",
+      "rc": 0,
+      "summary": "PASS: nothing watched is imported with the levers off (watched: webrtcvad, b4wave.dsp_dtx, pywebrtc_audio, ...)"
+    },
+    {
+      "command": "python -m b4wave.checks dtx_balance",
+      "rc": 0,
+      "summary": "PASS, no DTX_BALANCE WARN. Mean gated fraction bona 0.058 vs spoof 0.046 on loaded clips (+0.012) and 0.045 vs 0.032 after the B3 stage (+0.013); bar 0.05"
+    },
+    {
+      "command": "python -m b4wave.checks timing",
+      "rc": 0,
+      "summary": "timing(dtx_gate) projected factor 0.997 / 1.008 / 1.004 over three runs (smoke bar 1.05, limit 1.3)"
+    },
+    {
+      "command": "python -m b4wave.checks dsp_slices",
+      "rc": 0,
+      "summary": "12/12 PASS: plan tables reproduced, including the pinned tertiles 518/500/482; 63/73/109; 66/76/107; half B 43/47/46 and 44/47/42. The --lever dtx_gate run prints the VAD-by-fill report ('no fill-specific gain' for B2f vs itself)"
+    },
+    {
+      "command": "python -m b4wave.checks cpu",
+      "rc": 0,
+      "summary": "90/90 checks passed in 149 s; no APM_BALANCE WARN, no DTX_BALANCE WARN"
+    },
+    {
+      "command": "python rdloop/B4/scratch/toy_trainer_dtx.py $TMPDIR/toy_dtx dtx",
+      "rc": 0,
+      "summary": "Toy-model run through b4wave.train.main(): selftest line, header 'B4 DTX gate: on p=0.3 fill=mix modes=[1, 2, 3] frames_ms=[10, 20, 30] hangover_ms=40..200', counts in the 'Epoch 1 B3 aug' line (14 of 40 processed), per-class line with both classes in dtx_g1_20, config b4_levers [dtx_gate], metrics b4 row, 'Experiment saved to:'"
+    },
+    {
+      "command": "python -B -c 'rdlib.check_manifest(...)' (read-only)",
+      "rc": 0,
+      "summary": "0 violations over 138 protected files"
+    }
+  ],
+  "equivalence_argument": "With --aug_dtx_p 0.0 (the default), active_levers(args) does not contain dtx_gate. If no other B4 lever is on, build_rtc_augmenter_b4 returns build_rtc_augmenter_b3(args), the B3 object itself (checks augmenter: levers_off_returns_b3_object). b4_config_from_args reads a lever's arg_fields only when that lever is on, so --aug_dtx_fill is never read (check dtx_fill_unread_when_p0: an invalid fill with p=0 still gives the B3 object). _init_dtx_gate runs only for active levers, so webrtcvad and b4wave.dsp_dtx are never imported (checks imports, fresh process). The lever's meta keys, describe suffix and header line are added only when it is on (checks flags: levers_off_on_base_argv, no header lines). No rng4 is created or drawn from: rng4 exists only inside lever code, and the forced B4 augmenter without levers keeps rng4 None. When dtx_gate is on, every draw comes from rng4. The identity-gate test shows the parent rng's stage and codec draws, the outputs and the parent counts are bit-identical to B3 at dtx_p=1.0, with and without the codec. The real-gate test shows the parent counts are identical. The model, optimizer, state_dict keys and log formats are untouched. The trainer's only differences are the lever's header and selftest lines and the per-class telemetry, all printed only when a lever is on. The B4 group's new argparse entries do not change any b3wave argument (checks flags: parser_reproduces_b3wave_on_base_argv).",
+  "addressed": [],
+  "open_issues": [
+    "Dose: webrtcvad keeps its own overhang of about 100-330 ms after speech, and the plan's 40-200 ms hangover adds to it. On real training clips the realised gated fraction is low: mean about 0.05 per processed clip, and 10-25 % of processed clips gate nothing (the dtx_g0 bin). The held-out vad_gate gates a median 0.126 (mean 0.23) of a clip (data/dev_noisy_sim/heldout_v1/meta.csv). At p=0.3 only about 1.5 % of training audio is gated, so the mechanism may be too weak to move the VAD contrast or criterion (ii). Implemented as approved; whether to change the dose is a plan question for the owner or reviewer.",
+    "LOC: lever code is about 300 code lines (dsp_dtx.py 228, of which ~100 are selftest; augment ~35; train ~10; readout ~25), above the plan's est_loc of 210 but under the 400 cap. The checks add 329 more.",
+    "Not run here (left to the supervisor): the GPU check 'checks gpu' (generic, covers dtx_gate automatically) and the smoke run. Smoke expectations: header regex; \u03a3 wrtc_dtx_* / \u03a3 codec:* should be about 0.29-0.35 (the toy run had 14/40 on a tiny sample); at least one non-dtx_g0 bin > 0; both classes in the gated bins; timing \u2248 1.00.",
+    "Side note: numpy's bundled OpenBLAS (64 threads, busy-wait) makes any np.dot on long vectors in a loader worker cost about 8x its CPU. dtx_gate avoids it; the base pipeline was not examined."
+  ],
+  "needs_user": [],
+  "progress_note": "Done: core, apm_ns, dtx_gate. For dtx_gate: dsp_dtx.py (draws, webrtcvad gate, zero/LPC-CNG fill, 7-assert selftest), the augment.py registration and lever methods, the 2 train.py flags, the checks.py groups dtx / dtx_balance / _equiv_dtx_gate plus the dsp_slices additions, the VAD-by-fill report in scripts/b4_dsp_slices.py, and the README section. CPU checks 90/90 PASS in 149 s; manifest 0 violations; toy trainer run OK. webrtcvad 2.0.14.post1 is installed. Left: opus_plc (flags --aug_opus_plc_p / --aug_opus_loss / --aug_opus_burst, opus_plc.py, codec-slot lever, _equiv_opus_plc, checks opus_plc incl. zero-loss attribution). Details in rdloop/B4/impl/progress.md."
+}

@@ -1,0 +1,332 @@
+{
+  "report_path": "rdloop/B4/01_audit.md",
+  "headline": "B2f half_B WF1 91.98 merge / 92.14 final. The clean-noisy gap of 8.03 / 7.93 F1 (~5.6 WF1) is mostly bona flipped to spoof by degradation. The biggest gap is heldout: unseen DSP, noise and codecs give bona recall 69.3 and carry 4.23 of the 8.02 missing WF1 points, and no DSP stage has ever been in training.",
+  "best": {
+    "label": "B2f",
+    "run_dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623",
+    "readout_merge": "91.98",
+    "readout_final": "92.14",
+    "source": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5/metrics.json (half_B.wf1.wf1 = 0.9197880641320395) and local_eval/epoch_8/metrics.json (0.9213685698540242); same values in docs/experiment_log.csv rows B2f-loudnorm-screen / B2f-loudnorm-ep8"
+  },
+  "gaps": [
+    {
+      "id": "G1",
+      "title": "Bona flipped to spoof by unseen platform DSP, noise and codecs (sim_heldout)",
+      "evidence": [
+        {
+          "file": "SLS_setup/exp/B2f_.../local_eval/merge_top5/metrics.json + epoch_8/metrics.json (half_B.sets.sim_heldout_v1)",
+          "what": "heldout F1 / R_bona / EER, merge / final",
+          "value": "F1 87.92 / 88.27; R_bona 69.31 / 69.82; EER 12.03 / 11.11"
+        },
+        {
+          "file": "B2f local_eval/{merge_top5,epoch_8}/scores/sim_heldout_v1.txt joined with data/dev_noisy_sim/heldout_v1/meta.csv (half B), computed",
+          "what": "bona recall by DSP stage, merge / final",
+          "value": "afftdn 55.4 / 58.1 (n 74); low-pass band-limit 58.7 / 58.7 (63); VAD+CNG 55.9 / 61.8 (34); dynaudnorm 64.2 / 62.3 (53); loss+repeat-PLC 66.2 / 66.9 (130); chain depth 4 50.0 (32); no DSP 72.7 (128)"
+        },
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json breakdowns.sim_heldout_v1 (full set)",
+          "what": "worst codec / family bona recall",
+          "value": "gsm 65.85 / 65.45; g726 68.29 / 70.33; vacuum_cleaner 60.00 / 57.14; washing_machine 62.82 / 65.38"
+        },
+        {
+          "file": "B2f config.yaml rtc_augmentation line",
+          "what": "training stages (no DSP)",
+          "value": "stages=[coffee, footsteps, keyboard, musan, office, rain, echo, reverb] ... then codec p=1.0"
+        },
+        {
+          "file": "B3a merge_top5/compare_ci_vs_B2f-top5.json",
+          "what": "heldout F1 delta of consistency vs B2f",
+          "value": "+0.0228 [0.0110, 0.0347]"
+        }
+      ],
+      "slices": [
+        "heldout DSP: afftdn NS, band-limit, VAD+CNG, dynaudnorm AGC, packet loss+PLC, chain depth >= 4",
+        "heldout codecs gsm / g726",
+        "heldout families vacuum_cleaner / washing_machine / wind",
+        "heldout SNR 0 dB (R_bona 63.27 / 61.22)"
+      ],
+      "size_note": "Heldout carries 4.23 / 4.11 missing WF1 points (merge / final, computed from F1 87.92 / 88.27 at weight 0.35), 53 % of the merge's missing 8.02. It has 120 / 118 of the 213 / 210 matched+heldout bona FA. Lifting heldout F1 to matched's level = +1.16 WF1 (computed).",
+      "causes": [
+        "hypothesis: the training simulator has no platform DSP (NS/AGC/VAD/PLC), so any processing artefact is out of support and read as spoof (roadmap H2)",
+        "hypothesis: low training-noise diversity (32 files per ESC-50 class) vs unseen stationary/broadband families",
+        "hypothesis: non-Opus narrow-band codecs remove the bona cue"
+      ],
+      "priority": 1,
+      "already_tried": [
+        "B3d random Opus profiles: -2.20 [-2.90, -1.57]; g726 / gsm bona got worse (B3 wave summary \u00a73)",
+        "B3e SNR 0-20 dB: -1.06 [-1.65, -0.49]; heldout bona lost at every SNR",
+        "B3a JS consistency 0.3: +1.08 [+0.52, +1.67], heldout +2.28 F1 (open, but doubles run time)",
+        "no DSP stage and no chaining (--aug_max_stages) ever run; DeepFilterNet suppress stage exists but never enabled"
+      ],
+      "addressable_by": [
+        "augmentation",
+        "loss"
+      ]
+    },
+    {
+      "id": "G2",
+      "title": "Additive noise flips bona even in-distribution (sim_matched: training noise families, training SNRs, low-rate Opus)",
+      "evidence": [
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json half_B.sets",
+          "what": "matched vs clean bona recall",
+          "value": "matched R_bona 76.21 / 76.47 vs clean 92.84 / 92.91; matched F1 91.22 / 91.24"
+        },
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json breakdowns.sim_matched_v1.snr_db / codec / src",
+          "what": "bona recall by SNR, Opus profile, source",
+          "value": "0 dB 62.39 / 65.81; 5 dB 71.19 / 73.73; 10 dB 75.81 / 75.00; 20 dB 82.68 / 83.46; qq 61.62 / 66.67; wechat 65.38 / 71.15; zoom 83.02 / 83.96; online 72.83 / 74.73 vs offline 79.06 / 80.63"
+        },
+        {
+          "file": "B2f scores/sim_matched_v1.txt + dev_online_clean.txt + matched_v1/meta.csv (half B, online sources), computed",
+          "what": "noise-induced share of matched FA",
+          "value": "50 / 50 FA of 190 online-source bona; 15 / 13 already FA on clean; 35 / 37 noise-induced (70 % / 74 %)"
+        },
+        {
+          "file": "B2f metrics.jsonl",
+          "what": "matched mini R_bona / R_spoof epoch 1 -> 3",
+          "value": "81.56 / 93.67 -> 74.86 / 99.39"
+        }
+      ],
+      "slices": [
+        "matched SNR 0-10 dB",
+        "Opus qq / wechat (low-rate narrow-band)",
+        "online-source (double processed) clips",
+        "rain / coffee families"
+      ],
+      "size_note": "Matched carries 3.07 / 3.07 missing WF1 points (computed), 38 % of the merge's missing 8.02; 93 / 92 bona FA; ~70-74 % of the online-source FA are bona correct when clean.",
+      "causes": [
+        "hypothesis: the bona evidence is a fragile low-level cue that additive noise masks, and spoof is the default class (train prior 81 % spoof; noise_only/sil_only 100 % spoof)",
+        "hypothesis: noise and a low-rate narrow-band codec compound",
+        "hypothesis: shallow exposure, with one stage per clip, noise on ~60 % of clips (computed) and SNR uniform 5-20 dB"
+      ],
+      "priority": 2,
+      "already_tried": [
+        "B3e SNR range 0-20: matched SNR-0 R_bona +2.56 but net -1.06 (exhausted)",
+        "B2f loudness norm vs level aug: null",
+        "B3a consistency: matched +0.90 [-0.19, +2.03]",
+        "untested: --aug_snr_dist beta inside 5-20, multi-source noise mixing, noise-level curriculum"
+      ],
+      "addressable_by": [
+        "augmentation",
+        "loss"
+      ]
+    },
+    {
+      "id": "G3",
+      "title": "Saturated core: confident bona false alarms and 'no speech evidence => spoof'",
+      "evidence": [
+        {
+          "file": "B2f scores/*.txt + meta.csv half B, computed",
+          "what": "noisy (matched+heldout) bona FA at p>=0.99, merge / final",
+          "value": "136 of 213 / 133 of 210; clean 75 of 100 / 74 of 99"
+        },
+        {
+          "file": "B2f local_eval/{merge_top5,epoch_8}/probe_report.json",
+          "what": "noise_only / sil_only bona-source probes",
+          "value": "pred_spoof 1.0000 / 1.0000; mean_dP 0.8870 / 0.8965 (noise_only), 0.8929 / 0.8985 (sil_only)"
+        },
+        {
+          "file": "docs/experiments-exploration/b3-experiments/20261012_012259_B3_wave_summary.md lesson 5",
+          "what": "saturated noisy-bona share across B3 readouts",
+          "value": "B2f 17.4 %, B3a 17.6 %, B3b 15.7 %, B3c 21.2 %, B3d 21.6 %, B3e 18.8 %"
+        },
+        {
+          "file": "docs/experiments-exploration/20261009_175355_B2f_...md \u00a75.2",
+          "what": "threshold recovery",
+          "value": "one global logit shift recovers 0.39 (merge) / 0.40 (final) of oracle gap 0.61 / 0.69"
+        }
+      ],
+      "slices": [
+        "noise_only / sil_only probes",
+        "heldout VAD-gated bona (CNG 55.9 / 61.8, zeroed 69.2)",
+        "clean bona FA at p>=0.99"
+      ],
+      "size_note": "64 % of the noisy bona FA (computed). It is ranking, not threshold: a global shift is worth only ~0.4 WF1.",
+      "causes": [
+        "hypothesis: training never shows bona with long non-speech stretches, VAD gating, comfort noise or noise-dominated crops (augment before random 4 s crop)",
+        "hypothesis: the 81 % spoof prior makes spoof the fallback when the bona cue is absent"
+      ],
+      "priority": 3,
+      "already_tried": [
+        "no lever targeted it; LR/schedule did not move it (B2 summary \u00a73)",
+        "consistency did not shrink it (B3a 77 % of FA at p>=0.99; B3c grew it)",
+        "untested: silence/VAD robustness (A2.9), VAD-DTX-CNG (A2.3)"
+      ],
+      "addressable_by": [
+        "augmentation",
+        "loss"
+      ]
+    },
+    {
+      "id": "G4",
+      "title": "Echo conditions (part of the brief's noisy measure, not in WF1)",
+      "evidence": [
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json half_B.sets.sim_echo_v1",
+          "what": "echo F1 / R_bona",
+          "value": "F1 94.16 / 94.53; R_bona 83.38 / 84.65"
+        },
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json breakdowns.sim_echo_v1.family",
+          "what": "bona recall by echo family",
+          "value": "self_echo 79.40 / 79.83 (EER 8.05 / 8.41); farend 82.87 / 84.86; farend_aec 87.22 / 88.35"
+        },
+        {
+          "file": "docs/augmentations.md \u00a73.2",
+          "what": "training echo stage",
+          "value": "out[d:] += audio[:-d] * g, delay U(40,160) ms, gain U(0.15,0.5)"
+        }
+      ],
+      "slices": [
+        "self_echo (multi-tap)",
+        "farend without AEC",
+        "echo English bona (70.93 / 72.48)"
+      ],
+      "size_note": "Not in local WF1; 65 / 60 half-B bona FA of 391, 64-65 % of online-source ones noise-induced (computed).",
+      "causes": [
+        "hypothesis: training echo is a single delayed copy, with no far-end talker, AEC residual or double-talk"
+      ],
+      "priority": 4,
+      "already_tried": [
+        "none targeted; B3a consistency: echo +0.71 [-0.39, +1.77]"
+      ],
+      "addressable_by": [
+        "augmentation"
+      ]
+    },
+    {
+      "id": "G5",
+      "title": "English bona recall",
+      "evidence": [
+        {
+          "file": "B2f merge_top5/epoch_8 metrics.json breakdowns.*.lang",
+          "what": "en vs zh bona recall (full sets)",
+          "value": "en matched 63.57 / 63.18, heldout 59.69 / 60.47, echo 70.93 / 72.48; zh 82.52 / 85.37, 78.25 / 78.05, 89.84 / 90.85"
+        },
+        {
+          "file": "B2f scores + meta.csv half B, computed",
+          "what": "en FA counts, merge / final",
+          "value": "clean 70 / 65 of 479; matched 43 / 46 of 129; heldout 52 / 53 of 129"
+        }
+      ],
+      "slices": [
+        "English bona on every set, including clean"
+      ],
+      "size_note": "English is 33 % of noisy bona but 47 % of the final readout's matched+heldout FA (99 / 210, computed).",
+      "causes": [
+        "hypothesis: few distinct English bona recordings (~1.5k English offline bona); augmentation multiplies channels, not speakers"
+      ],
+      "priority": 5,
+      "already_tried": [
+        "B3b balanced + language sampler: -0.83 [-1.46, -0.25], English worse (exhausted)"
+      ],
+      "addressable_by": [
+        "data",
+        "augmentation",
+        "loss"
+      ]
+    },
+    {
+      "id": "G6",
+      "title": "Evaluation blind spots for reading augmentation levers",
+      "evidence": [
+        {
+          "file": "B2f config.yaml pools; find over data/augmentation/musan/{noise,music}",
+          "what": "MUSAN pool includes the music that sim_unseen_v1 uses",
+          "value": "musan:1590 = 930 noise + 660 music files"
+        },
+        {
+          "file": "exploop/B3/wave.json lever_notes",
+          "what": "known leak and noise band",
+          "value": "sim_unseen_v1 is therefore not read in this loop (music leak); noise band ~0.2-0.5 WF1 final, up to ~1.4 per set"
+        },
+        {
+          "file": "docs/experiments-exploration/b3-experiments/20261012_012259_B3_wave_summary.md lesson 8",
+          "what": "seed band",
+          "value": "The seed band of the consistency recipe is unmeasured"
+        }
+      ],
+      "slices": [
+        "sim_unseen_v1 contaminated",
+        "one seed per config",
+        "clean term not half-filtered"
+      ],
+      "size_note": "Decides whether a +0.5 lever can be told from noise; there is no clean unseen-condition check.",
+      "causes": [
+        "assert_training_ops flags only dirs at/under a reserved dir, so the parent musan/ passes",
+        "single-seed protocol"
+      ],
+      "priority": 5,
+      "already_tried": [
+        "paired bootstrap CIs exist; no second seed; no clean unseen set"
+      ],
+      "addressable_by": [
+        "eval",
+        "data"
+      ]
+    }
+  ],
+  "exhausted_levers": [
+    {
+      "lever": "label smoothing x asymmetric --ce_weights (B1)",
+      "outcome": "-2.50 WF1@0.5 vs B0 merge, oracle only -0.45; threshold bias",
+      "source": "docs/experiments-exploration/20261007_222414_00_B0_vs_B1_postmortem.md; B2 wave summary \u00a73"
+    },
+    {
+      "lever": "LR below 5e-6 / 2.5e-6 and 10 epochs (B2d, B2e)",
+      "outcome": "LR series turned over (+0.26 final); 10 epochs -0.16 / -0.42",
+      "source": "docs/experiments-exploration/20261008_232331_B2_wave_summary_and_full_run_recommendation.md \u00a73"
+    },
+    {
+      "lever": "loudness norm vs level aug (B2f)",
+      "outcome": "null -0.36 / -0.39; same worst slices",
+      "source": "docs/experiments-exploration/20261009_175355_B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234.md \u00a76"
+    },
+    {
+      "lever": "JS consistency weight 1.0 (B3c)",
+      "outcome": "-0.77 [-1.31, -0.22]; saturated tail grew",
+      "source": "docs/experiments-exploration/b3-experiments/20261012_012259_B3_wave_summary.md lesson 2"
+    },
+    {
+      "lever": "class + language balanced sampler with re-derived CE (B3b)",
+      "outcome": "-0.83 [-1.46, -0.25]; English bona got worse",
+      "source": "B3 wave summary lesson 3"
+    },
+    {
+      "lever": "random Opus codec profiles --aug_codec_profiles random (B3d)",
+      "outcome": "-2.20 [-2.90, -1.57]; g726 / gsm bona -13.42 / -11.38",
+      "source": "B3 wave summary lesson 4; B3d report \u00a75.5"
+    },
+    {
+      "lever": "uniform SNR range 0-20 dB --aug_snr_db 0 20 (B3e)",
+      "outcome": "-1.06 [-1.65, -0.49]; heldout SNR-0 R_bona -4.09",
+      "source": "B3 wave summary lesson 4; B3e report \u00a75.6"
+    },
+    {
+      "lever": "cross-LR weight averaging",
+      "outcome": "91.87 vs parents 92.26 / 92.53",
+      "source": "B2 wave summary \u00a73"
+    },
+    {
+      "lever": "global threshold / calibration / CE prior as a main lever",
+      "outcome": "ceiling ~0.2-0.5; global shift recovers 0.39-0.40 on B2f",
+      "source": "B2 wave summary \u00a73; B2f report \u00a75.2"
+    }
+  ],
+  "constraints": [
+    "Metric 0.3*MacroF1(clean) + 0.7*MacroF1(noisy) at threshold 0.5 (roadmap \u00a70)",
+    "Single model at inference; ensembles forbidden; weight averaging (soups/SWA/EMA) allowed. Score averaging of checkpoints is an inference ensemble (roadmap \u00a72)",
+    "MUSAN speech and external speech forbidden; WebRTC AEC/NS/AGC/VAD simulation and software codecs explicitly allowed; RNNoise office/coffee 'verify'; neural-codec round trip and enhancement pre-processor 'ask'; babble from own training speech 'likely allowed'; no progress/eval audio use (roadmap \u00a72)",
+    "Eval-only reserve: never train on G.722/G.726/GSM/speex/G.711; anlmdn, acompressor, afftdn, dynaudnorm, vad_gate, packet_loss, bandlimit, resample8k, compand, agate, crystalizer, speechnorm; 11 reserved ESC-50 classes; data/augmentation_eval and data/augmentation/musan/music; dev audio and half B. New aug code must call assert_training_ops itself (b3wave/heldout_reserve.py, docs/dev_splits.md \u00a77-8)",
+    "Training DSP must use implementations disjoint from sim_ops (WebRTC APM, webrtcvad, libopus PLC, RNNoise arnndn, DeepFilterNet, speexdsp) (next_steps_plan \u00a72.4)",
+    "Known leak: B2f-lineage MUSAN pool includes MUSAN music (musan:1590 = 930 noise + 660 music), so sim_unseen_v1 is not a clean check",
+    "--loudness_norm --loudness_norm_lufs -23 runs before augmentation on train/dev/eval; every eval must pass it",
+    "Cycle limits: extra VRAM <= 4.0 GiB, peak <= 22.0 GiB, epoch time <= 1.3x base (base 30.7-31.2 min/epoch => ~40.6 min, ~5.4 h per 8 epochs, computed), <= 400 LOC per lever, <= 10 h per run; a two-view consistency lever (57.7-59.8 min/epoch) breaks the 1.3x cap against B2f",
+    "One RTX 4090 24 GB; augmentation runs in 64 CPU loader workers (ffmpeg 4.2, two subprocesses per codec call; heavy chains can make training data-bound)",
+    "Container restarts wipe system ffmpeg and the codec stage then silently no-ops; install deps in the rtc-sdd conda env",
+    "Protocol: one seed (1234), <= 10 epochs, keep_topk_by_wf1 7, keep_epochs 8, both readouts, null band +-0.5; noise band ~0.2-0.5 final, up to ~1.4 per set",
+    "Data: 75,785 train clips (61,432 spoof / 14,353 bona; ~1.5k English offline bona); train has no noisy audio and 2 of 7 platforms",
+    "Deadline: final eval data 2026-11-09, submission due 2026-11-16 (~30 days from 2026-10-17)"
+  ]
+}

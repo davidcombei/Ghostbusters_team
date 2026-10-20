@@ -1,0 +1,730 @@
+# changes since review round 1
+diff --git a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/README.md b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/README.md
+index 5959abf..3b8bc16 100644
+--- a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/README.md
++++ b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/README.md
+@@ -71,9 +71,12 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd
+   `[no_hpf]` (512-pt Hann Welch over the 5.5 s after priming: attenuation in 31.25-93.75 Hz within 3 dB of the
+   1-4 kHz attenuation), `[aligned]` (output lag 0). Measured on pywebrtc_audio 0.2.0 (`checks apm`): no_gain
+   −6.02 / −12.38 / −18.40 / −21.47 dB, removed 5.99 / 11.89 / 17.53 / 20.83 dB, no_hpf diff −0.09 / −0.49 /
+-  −0.83 / −0.92 dB, lag 0 (levels 6 / 12 / 18 / 21).
++  −0.83 / −0.92 dB, lag 0 (levels 6 / 12 / 18 / 21). The `[aligned]` lag search uses sums of elementwise
++  products, not `np.dot` (review F1.2: the dot product woke numpy's multi-threaded OpenBLAS, whose spinning threads
++  billed ~3× the wall time to the process and slowed the next calls; now `measure()` CPU = wall, ~0.5 s).
+ - **Counters** (`meta_keys`, in the `Epoch N B3 aug` line and the per-class B4 line): `wrtc_ns6`, `wrtc_ns12`,
+-  `wrtc_ns18`, `wrtc_ns21`, `fail_wrtc_ns` (an exception in the backend: the clip passes through unchanged).
++  `wrtc_ns18`, `wrtc_ns21`, `fail_wrtc_ns` (an exception in the backend: the clip passes through unchanged; the
++  first one per process prints `[b4wave] wrtc_ns failed (<exc>); passing through`, see Telemetry).
+ - **Header** (on only): `B4 APM NS: on p=0.3 levels_db=[6, 12, 18, 21] backend=pywebrtc_audio.NoiseSuppressor
+   hpf=off agc=off`; `describe()` gains ` | wrtc_ns p=0.3 levels_db=[6, 12, 18, 21]`; reserve: `wrtc_ns`.
+ - **Off** (`--aug_apm_p 0.0`, the default): the B3 object, no rng4, `pywebrtc_audio` / `b4wave.dsp_apm` never
+@@ -114,18 +117,36 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd
+ - **Counters** (`meta_keys`, in the `Epoch N B3 aug` line and the per-class B4 line), per processed clip: the fill
+   used `wrtc_dtx_zero` / `wrtc_dtx_cng`, the realised gated-fraction bin `dtx_g0` (< 1 %) / `dtx_g1_20` (1-20 %) /
+   `dtx_g20_40` (20-40 %) / `dtx_g40p` (≥ 40 %), and `fail_wrtc_dtx` (an exception, e.g. an unsupported sample
+-  rate: the clip passes through unchanged and is not counted as processed).
++  rate: the clip passes through unchanged and is not counted as processed; the first one per process prints
++  `[b4wave] wrtc_dtx failed (<exc>); passing through`).
+ - **Header** (on only): `B4 DTX gate: on p=0.3 fill=mix modes=[1, 2, 3] frames_ms=[10, 20, 30]
+   hangover_ms=40..200`; `describe()` gains ` | wrtc_dtx p=0.3 fill=mix`; reserve: `wrtc_dtx`.
+ - **Off** (`--aug_dtx_p 0.0`, the default): the B3 object, no rng4, `webrtcvad` / `b4wave.dsp_dtx` never imported,
+   `--aug_dtx_fill` unread (`checks augmenter`, `imports`, `dtx_fill_unread_when_p0`).
+ - **Balance** (`checks dtx_balance`, 200 bona + 200 spoof training clips): mean realised gated fraction with the
+   drawn parameters bona 0.058 / spoof 0.046 (loaded clip) and 0.045 / 0.032 (after the B3 acoustic stage), bona −
+-  spoof +0.012 / +0.013, no `DTX_BALANCE WARN` (bar 0.05). For scale: the held-out `vad_gate` gates a median 0.126
+-  (mean 0.23) of a clip (`data/dev_noisy_sim/heldout_v1/meta.csv`).
+-- **Readout**: with `--lever dtx_gate`, `scripts/b4_dsp_slices.py` also prints the O2.3 report "VAD by fill"
+-  (vad:zero / vad:cng DiD and DiD*; "near-in-distribution" when zero-fill DiD* ≤ −σ_zero (−0.42) with CNG-fill
+-  DiD* ≥ 0, "transfer claimable" when CNG-fill DiD* < 0; JSON `vad_fill_reading`); a report, not a verdict rule.
++  spoof +0.012 / +0.013, no `DTX_BALANCE WARN` (bar 0.05).
++- **Dose (code review F1.1; open issue for the owner).** The realised dose is far below the reserved eval op's.
++  Training clips with ≥ 20 % of their samples gated (`dtx_g20_40` + `dtx_g40p`, `checks dtx_balance`): 5 / 4 of 200
++  (bona / spoof, loaded clip) and 3 / 1 of 200 (after the B3 stage). The held-out `vad_gate`
++  (`data/dev_noisy_sim/heldout_v1/meta.csv`, n 629, median 0.125, mean 0.233): bins g0 / g1_20 / g20_40 / g40p
++  1.3 / 66.6 / 15.7 / 16.4 %, so 32.1 % of clips are ≥ 20 % gated. Cause: webrtcvad's internal overhang plus the
++  drawn 40-200 ms hangover (above). The arm is trained as planned; the readout measures the realised dose and a
++  pre-registered dose rule keeps an under-dosed null from reading as "refuted" (verdict rules below). A
++  higher-dose variant (e.g. hangover U(0, 200) ms, or a higher `p`) is a training change and the owner's call.
++- **Readout**: with `--lever dtx_gate`, `scripts/b4_dsp_slices.py` also prints
++  - the **dose** (JSON `dtx_dose`): the arm's `dtx_g*` bin shares of its processed clips per class and pooled,
++    summed over epochs from `metrics.jsonl["b4"]["aug_by_class"]` (a later row for the same epoch wins), with
++    the processed share and `fail_wrtc_dtx`, next to the held-out `vad_gate` shares computed from
++    `heldout_v1/meta.csv` (per class and pooled); dose_ratio and the dose rule;
++  - the O2.3 report "VAD by fill" (vad:zero / vad:cng DiD and DiD*; "near-in-distribution" when zero-fill DiD* ≤
++    −σ_zero (−0.42) with CNG-fill DiD* ≥ 0, "transfer claimable" when CNG-fill DiD* < 0; JSON
++    `vad_fill_reading`); a report, not a verdict rule;
++  - the **decision lines** (plan §2.2 falsifiers, JSON `dtx_gate_reading`): (2) clean F1 Δ < −0.5 or a noisy /
++    VAD spoof-miss guard broken on either readout → Drop; (3) the shared under-fit falsifier → Drop; (1) VAD DiD*
++    ≥ 0 (verdict readout) **and** drop_high − drop_low ≤ the panel mean (−10.2; full set, final) **and** no
++    outcome escape (WF1 Δ ≥ +0.5 on merge_top5 **and** final) → Drop only at an adequate dose, else "under-dosed
++    / unknown: owner decides a dose variant".
+ 
+ ## Lever `opus_plc` (plan §2.3): in-process libopus with Gilbert-Elliott packet loss and decoder PLC
+ 
+@@ -221,6 +242,12 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd
+   augmenter); when a lever is on, `Epoch N B4 aug-by-class bona: n=<clips> <key>=<count> ... | spoof: n=... ...`
+   and `metrics.jsonl["b4"] = {"levers": [...], "aug_by_class": {"bona": {"n", "counts"}, "spoof": {...}}}`
+   (the meta vector summed per label; consistency mode counts both views of a clip).
++- Lever failures (review F1.3; on only): an exception in a lever's backend is counted on every clip (`fail_wrtc_ns`,
++  `fail_wrtc_dtx`, `fail_opus_plc`), and the first one per process and op prints
++  `[b4wave] <op> failed (<ExcType>: <exc>); passing through` (`ffmpeg fallback with the same profile` for
++  `opus_plc`). This is the pattern of the parent's `[rtc_augment] codec ... failed (...)` line, so the wave's early
++  check (`failed \(`) catches a systematic worker-side lever failure at the first failing clip instead of the
++  epoch-1 counters (`checks lever_failures`). Levers off: no such line can occur (the B3 object).
+ 
+ ## Reserve (never in training)
+ 
+@@ -286,6 +313,16 @@ tertiles k ≤ 32 / 33-50 / ≥ 51 of 201 frames) **and** the VAD contrast at le
+ `opus_plc` capped at "directional" (refuted: online PLC DiD ≥ −0.57), decided on outcome + guards + its zero-loss
+ control.
+ 
++**`dtx_gate` dose rule** (code review F1.1, pre-registered before the smoke run; readout only, no training change).
++dose_ratio = the arm's share of processed clips with ≥ 20 % of the samples gated (`dtx_g20_40` + `dtx_g40p`, both
++classes pooled, summed over epochs from `metrics.jsonl["b4"]`) / the held-out `vad_gate`'s share (0.321 from
++`heldout_v1/meta.csv`); per-class ratios are printed too. If dose_ratio < **0.25** ("under-dosed"), or the dose
++cannot be read (no `b4` rows: "dose unknown"), the `dtx_gate` lever verdict cannot be "refuted": the refuted case
++reads **"inconclusive (under-dosed)"** / "inconclusive (dose unknown)", and falsifier (1) reports "under-dosed:
++owner decides a dose variant" instead of Drop. A positive result ("mechanism shown") still counts at any dose.
++Falsifiers (2) and (3) drop at any dose. In falsifier (1) the plan's "with WF1 Δ < +0.5" is read on both
++readouts (O3.2): the arm escapes on outcome only with WF1 Δ ≥ +0.5 on merge_top5 **and** final.
++
+ ## Checks (`python -m b4wave.checks <target>`)
+ 
+ | target | what |
+@@ -304,8 +341,9 @@ control.
+ | `dtx_balance` | dtx_gate, plan §2.2 risk: 200 bona + 200 spoof training clips (50 per class × src × lang cell), loaded clip and after the B3 acoustic stage; realised gated fraction with the drawn parameters and per forced mode (frame 20 ms, hangover 120 ms): mean / quartiles / share gated / bins per class, bona − spoof; `DTX_BALANCE WARN` at > 0.05; a warning, never a failure |
+ | `codec_draw_order` | opus_plc: from 1,000 start states (all apps / a 3-app subset; `_ffmpeg` recorded, not run) `draw_codec_params` leaves the rng where `codecs_augm` leaves it and `ffmpeg_opus` issues the same ffmpeg commands; 14 real ffmpeg calls: same end state, bit-identical output |
+ | `opus_plc` | opus_plc: bad loss / burst / p and codec off / random profiles rejected (argparse, `validate_b4_args`, `check_ranges`, augmenter), ranges unread at p = 0, `0 0` accepted; header = plan `expect_regex` (exact line), describe / meta keys; the selftest's named asserts `loads` / `ctl_roundtrip` / `plc_not_zero` / `shape_finite` with values; GE mask statistics (realised loss and mean burst over 400k packets, B = 1 → bursts of 1, stationary start, L = 0 → none lost); the 48 kHz decode equals the no-loss decode up to the first lost packet; the lever at p = 0.3 on 100 clips (rate, bins, unpicked clips bit-identical to B3, rng4 replayed draw by draw, deterministic); every loss bin populated, `0 0` → realised loss 0; fallback (22.05 kHz → `fail_opus_plc`, ffmpeg output = B3); apm_ns → dtx_gate → opus_plc chain; zero-loss attribution (3 training clips × 7 profiles, pooled per profile) and encoder parity with ffmpeg's Ogg packets (SKIP of the libopus parts when libopus is missing) |
++| `lever_failures` | review F1.3: each lever's backend replaced by a raising stub (apm / dtx under the identity stubs; opus_plc with the real init and a pass-through ffmpeg fallback): every failure counted, the first one per process printed once as `[b4wave] <op> failed (RuntimeError: ...); <action>` (matches the early check's `failed \(`), printed again after a pid change |
+ | `timing` | CPU-s per clip of the loader path (self + ffmpeg children), levers off vs each lever forced on; projected saturated-loader epoch factor at the wave p (fails > 1.3); opus_plc: CPU-s per codec call in-process vs ffmpeg on 12 training clips (fails unless in-process is cheaper) |
+-| `dsp_slices` | `scripts/b4_dsp_slices.py` run on B2f itself (CLI + JSON) reproduces plan §1.1 (contrast rows n / recall / G / D / within-run, null-panel μ / σ / min / max, half-B and clip means, bars, per-run DiDs incl. B2a), the pinned tertile table, the criterion-(ii) panel, the §2.0 spoof-miss guards and Poisson bounds, the O3.2 heldout-F1 panel (SD, clearing counts); the self-comparison is null; verdict-rule unit cases (shown / directional without placebo / inconclusive / refuted; run anomaly → "confounded", no lower-p retry); `--lever dtx_gate` on B2f prints the VAD-by-fill report ("no fill-specific gain" for the self-comparison) and its reading rules (unit cases); `--lever opus_plc` on B2f prints the plan §2.3 decision lines (self-comparison: DiD* +0.57, falsifier (1) fires, guards hold, PLC bounds 26 / 25, B2f qq / wechat recall 61.62 / 71.15) and the attribution rule (unit cases) |
++| `dsp_slices` | `scripts/b4_dsp_slices.py` run on B2f itself (CLI + JSON) reproduces plan §1.1 (contrast rows n / recall / G / D / within-run, null-panel μ / σ / min / max, half-B and clip means, bars, per-run DiDs incl. B2a), the pinned tertile table, the criterion-(ii) panel, the §2.0 spoof-miss guards and Poisson bounds, the O3.2 heldout-F1 panel (SD, clearing counts); the self-comparison is null; verdict-rule unit cases (shown / directional without placebo / inconclusive / refuted; run anomaly → "confounded", no lower-p retry); `--lever dtx_gate` on B2f prints the VAD-by-fill report ("no fill-specific gain" for the self-comparison) and its reading rules (unit cases); review F1.1: the held-out `vad_gate` dose reproduces n 629, median 0.125, mean 0.233, 1.3 / 66.6 / 15.7 / 16.4 %, ≥ 20 % 0.321; B2f (no b4 rows) reads "dose unknown"; a fabricated arm dir (B2f readouts + a `metrics.jsonl` with b4 rows, a levers-off row and a repeated epoch) gives the summed per-class dose, the ratio and "under-dosed", with the dose and decision lines printed; unit cases: bin edges = `dsp_dtx.gated_bin`, the dose rule (0.25 edge, no processed clip, no telemetry), the lever verdict (null → refuted only at an adequate dose, under-dosed / unknown → inconclusive, positive counts at any dose) and the falsifier decisions ((1) per dose, one-readout escape does not count, (2) / (3) drop at any dose); `--lever opus_plc` on B2f prints the plan §2.3 decision lines (self-comparison: DiD* +0.57, falsifier (1) fires, guards hold, PLC bounds 26 / 25, B2f qq / wechat recall 61.62 / 71.15) and the attribution rule (unit cases) |
+ | `gpu --ckpt` | [GPU] B2f checkpoint → key-exact load into `ModelSLSB3`, logits = `ModelSLS` (≤ 1e-4) on 4 real dev clips; each registered lever on: forward + backward, finite loss and grads |
+ | `overfit --lever` | no B4 lever adds parameters: SKIP (exit 0) for approved ids, FAIL for unknown ids |
+ | `model` / `optim` | b3wave's checks (same model and optimizer code) |
+diff --git a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/augment.py b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/augment.py
+index 7b8b046..05dd73d 100644
+--- a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/augment.py
++++ b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/augment.py
+@@ -225,6 +225,7 @@ class RTCAugmenterB4(RTCAugmenterB3):
+         self.codec_lever = codec_levers[0] if codec_levers else None
+         self.rng4 = None
+         self.rng4_pid = None
++        self.fail_printed = {}                      # op -> pid of the last process that printed its failure
+         super().__init__(cfg)
+         assert_training_ops(
+             codecs=[c for lid in self.levers_on for c in LEVERS[lid].codecs],
+@@ -252,6 +253,16 @@ class RTCAugmenterB4(RTCAugmenterB3):
+             self.rng4_pid = os.getpid()
+         return self.rng4
+ 
++    def _lever_failed(self, key, op, exc, action="passing through"):
++        """Count a worker-side lever failure (`key`) and print the first one per process and op:
++        `[b4wave] <op> failed (<exc>); <action>` (review F1.3). Same pattern as the parent's
++        `codec ... failed (...)` line, so the wave's early check (`failed \\(`) sees lever failures too."""
++        self._count(key)
++        pid = os.getpid()
++        if self.fail_printed.get(op) != pid:
++            self.fail_printed[op] = pid
++            print(f"[b4wave] {op} failed ({type(exc).__name__}: {exc}); {action}", flush=True)
++
+     def _post_dsp(self, out, sr):
+         """Slot between the acoustic stage and the codec. No lever on: `out` itself, no draw."""
+         for lid in self.post_dsp_levers:
+@@ -280,8 +291,8 @@ class RTCAugmenterB4(RTCAugmenterB3):
+         lvl = int(cfg.apm_ns_levels[int(rng4.integers(len(cfg.apm_ns_levels)))])
+         try:
+             processed = self._apm.wrtc_ns(out, lvl, sr)
+-        except Exception:                       # the clip passes through, counted
+-            self._count("fail_wrtc_ns")
++        except Exception as exc:                # the clip passes through, counted; first one printed
++            self._lever_failed("fail_wrtc_ns", "wrtc_ns", exc)
+             return out
+         self._count(f"wrtc_ns{lvl}")
+         return finalize(processed, out)
+@@ -304,8 +315,8 @@ class RTCAugmenterB4(RTCAugmenterB3):
+             return out
+         try:
+             processed, frac, fill_used = self._dtx.wrtc_dtx(out, rng4, sr, cfg.dtx_fill)
+-        except Exception:                       # the clip passes through, counted
+-            self._count("fail_wrtc_dtx")
++        except Exception as exc:                # the clip passes through, counted; first one printed
++            self._lever_failed("fail_wrtc_dtx", "wrtc_dtx", exc)
+             return out
+         self._count(f"wrtc_dtx_{fill_used}")
+         self._count(self._dtx.gated_bin(frac))
+@@ -340,8 +351,8 @@ class RTCAugmenterB4(RTCAugmenterB3):
+             processed, loss = self._opus.opus_loss_roundtrip(out, rng4, params["kbps"], params["cutoff"],
+                                                              params["frame_ms"], params["application"],
+                                                              cfg.opus_loss, cfg.opus_burst, sr)
+-        except Exception:                       # ffmpeg with the same draws, counted
+-            self._count("fail_opus_plc")
++        except Exception as exc:                # ffmpeg with the same draws, counted; first one printed
++            self._lever_failed("fail_opus_plc", "opus_plc", exc, "ffmpeg fallback with the same profile")
+             return self._opus.ffmpeg_opus(out, params, sr)
+         self._count("opus_plc")
+         self._count(self._opus.loss_bin(loss))
+diff --git a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/checks.py b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/checks.py
+index 3d42b6a..2a3b38c 100644
+--- a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/checks.py
++++ b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/checks.py
+@@ -9,8 +9,8 @@ Self-checks of the b4wave package (rdloop/B4). Run from SLS_setup/:
+     python -m b4wave.checks overfit --lever <id> levers with params_added (none in B4: SKIP, exit 0)
+ 
+     single CPU groups: module | flags | augmenter | reserve_names | imports | trainer | data |
+-                       apm | apm_balance | dtx | dtx_balance | codec_draw_order | opus_plc | timing |
+-                       dsp_slices
++                       apm | apm_balance | dtx | dtx_balance | codec_draw_order | opus_plc |
++                       lever_failures | timing | dsp_slices
+     as in b3wave:      model --ckpt <path> [GPU] | optim [GPU model build]
+     all                = cpu
+ 
+@@ -1422,6 +1422,79 @@ def check_codec_draw_order(n_seeds=500, n_real=14):
+     return ok
+ 
+ 
++def check_lever_failures(n=6, n_codec=12):
++    """
++    Code review F1.3: a worker-side lever failure is counted on every clip and printed once per process and op as
++    `[b4wave] <op> failed (<ExcType>: <exc>); <action>`, a line the wave's early check (`failed \\(`, the default
++    of scripts/exploop/supervisor.py) forbids, like the parent's `codec ... failed (...)`; a new pid prints again.
++    The backend calls are replaced by a raising stub (apm / dtx under the identity stubs; opus_plc with the real
++    init, so it needs libopus, and its ffmpeg fallback stubbed to a pass-through).
++    """
++    from b4wave import dsp_apm, dsp_dtx
++    from b4wave.augment import build_rtc_augmenter_b4
++    forbid = re.compile(r"failed \(")
++
++    def boom(*a, **k):
++        raise RuntimeError("stub backend failure")
++
++    def run(aug, k):
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            for c in _synthetic_clips(k, np.random.default_rng(41), seconds=0.5):
++                aug(c.copy(), 16000)
++        return buf.getvalue().splitlines()
++
++    def verdict(lid, op, key, action, aug, lines, lines2, expect_fail):
++        msg = [ln for ln in lines if ln.startswith(f"[b4wave] {op} failed (")]
++        msg2 = [ln for ln in lines2 if ln.startswith(f"[b4wave] {op} failed (")]
++        cond = (len(msg) == 1 and bool(forbid.search(msg[0])) and msg[0].endswith(action)
++                and "RuntimeError: stub backend failure" in msg[0] and len(msg2) == 1
++                and expect_fail >= 1 and aug.stage_counts.get(key, 0) == expect_fail)
++        return report(f"lever_failure_printed_once({lid})", cond,
++                      f"{len(msg)} lines in the first process, {len(msg2)} after a pid change; {key} "
++                      f"{aug.stage_counts.get(key, 0)} (expect {expect_fail}); {msg[:1]}",
++                      [f"{msg[0] if msg else 'no line'}  (x1 for {key} = {aug.stage_counts.get(key, 0)}; "
++                       f"again after a pid change: {len(msg2)})"])
++
++    ok = True
++    for lid, op, key, over, ctx, mod, fn in (("apm_ns", "wrtc_ns", "fail_wrtc_ns", {"aug_apm_p": 1.0}, identity_ns, dsp_apm, "wrtc_ns"),
++                                             ("dtx_gate", "wrtc_dtx", "fail_wrtc_dtx", {"aug_dtx_p": 1.0}, identity_dtx, dsp_dtx, "wrtc_dtx")):
++        a = base_args(no_codec_aug=True, **over)
++        with ctx():
++            with quiet():
++                aug = build_rtc_augmenter_b4(a)
++            saved = getattr(mod, fn)
++            setattr(mod, fn, boom)
++            try:
++                lines = run(aug, n)
++                aug.fail_printed[op] = -1                   # as in a forked worker: another pid
++                lines2 = run(aug, 1)
++            finally:
++                setattr(mod, fn, saved)
++        ok &= verdict(lid, op, key, "passing through", aug, lines, lines2, n + 1)
++    avail, why = _opus_lib_available()
++    if not avail:
++        skip("lever_failure_printed_once(opus_plc)", f"libopus missing: {why}")
++        return ok
++    from b4wave import opus_plc
++    a = base_args(no_codec_aug=False, aug_opus_plc_p=1.0)
++    with quiet():
++        aug = build_rtc_augmenter_b4(a)
++    saved = (opus_plc.opus_loss_roundtrip, opus_plc.ffmpeg_opus)
++    opus_plc.opus_loss_roundtrip = boom
++    opus_plc.ffmpeg_opus = lambda audio, params, sr=16000: (np.asarray(audio, np.float32), params["app"])
++    try:
++        lines = run(aug, n_codec)
++        aug.fail_printed["opus_plc"] = -1
++        lines2 = run(aug, n_codec)
++    finally:
++        opus_plc.opus_loss_roundtrip, opus_plc.ffmpeg_opus = saved
++    n_codec_calls = sum(v for k, v in aug.stage_counts.items() if k.startswith("codec:"))
++    ok &= verdict("opus_plc", "opus_plc", "fail_opus_plc", "ffmpeg fallback with the same profile", aug, lines, lines2,
++                  n_codec_calls)
++    return ok
++
++
+ def _snr_aligned(ref, test, max_lag=OPUS_MAX_LAG):
+     """(SNR dB, lag, sum ref^2, sum (ref - test)^2, share of the error energy above 3 kHz): the integer lag
+     |lag| <= max_lag with the highest 10 log10(sum ref^2 / sum (ref - test)^2) on the overlap (lag > 0: ref is
+@@ -2002,6 +2075,29 @@ DSP_CRIT2 = {"full_final": (-10.2, 5.8, 0), "halfB_final": (-13.4, 3.5, -5), "ha
+ DSP_GUARDS = {"merge": ({"NS_offline": 18, "VAD_offline": 15, "PLC": 16, "halfB_noisy": 24}, {"NS_offline": 29, "VAD_offline": 25, "PLC": 26, "halfB_noisy": 36}),
+               "final": ({"NS_offline": 18, "VAD_offline": 13, "PLC": 15, "halfB_noisy": 23}, {"NS_offline": 29, "VAD_offline": 22, "PLC": 25, "halfB_noisy": 35})}
+ DSP_OUTCOME = {"final": (88.27, 88.50, 1.35, {"0.5": 5, "0.8": 4}), "merge": (87.92, 88.25, None, {"0.5": 6})}
++# code review F1.1: heldout vad_gate dose (data/dev_noisy_sim/heldout_v1/meta.csv, n 629): median, mean, bin shares in %
++DSP_VAD_DOSE = {"n": 629, "median": 0.125, "mean": 0.233, "shares_pct": (1.3, 66.6, 15.7, 16.4), "high_share": 0.321}
++# a fabricated dtx_gate arm's metrics.jsonl: a levers-off row and a repeated epoch 1 (the later row wins), two b4 rows
++DTX_FAKE_ROWS = [
++    {"epoch": 1, "b3": {}},
++    {"epoch": 1, "b3": {}, "b4": {"levers": ["dtx_gate"], "aug_by_class": {
++        "bona": {"n": 1000, "counts": {"dtx_g0": 30, "dtx_g1_20": 260, "dtx_g20_40": 8, "dtx_g40p": 2, "wrtc_dtx_zero": 150}},
++        "spoof": {"n": 4000, "counts": {"dtx_g0": 120, "dtx_g1_20": 1060, "dtx_g20_40": 15, "dtx_g40p": 4, "fail_wrtc_dtx": 1}}}}},
++    {"epoch": 2, "b3": {}, "b4": {"levers": ["dtx_gate"], "aug_by_class": {
++        "bona": {"n": 1000, "counts": {"dtx_g0": 25, "dtx_g1_20": 265, "dtx_g20_40": 9, "dtx_g40p": 1}},
++        "spoof": {"n": 4000, "counts": {"dtx_g0": 110, "dtx_g1_20": 1075, "dtx_g20_40": 12, "dtx_g40p": 3}}}}},
++]
++DTX_FAKE_EXPECT = {"bona": (600, 20, 2000, 0), "spoof": (2399, 34, 8000, 1)}   # processed, >= 20 % gated, clips, fails
++
++
++def _fake_dtx_arm(tmp, b2f_dir):
++    """A dtx_gate arm dir for the readout: B2f's readouts symlinked + DTX_FAKE_ROWS as metrics.jsonl."""
++    arm = Path(tmp) / "fake_dtx_arm"
++    (arm / "local_eval").mkdir(parents=True)
++    for name in ("epoch_8", "merge_top5"):
++        (arm / "local_eval" / name).symlink_to(Path(b2f_dir) / "local_eval" / name)
++    (arm / "metrics.jsonl").write_text("".join(json.dumps(r) + "\n" for r in DTX_FAKE_ROWS), encoding="utf-8")
++    return arm
+ 
+ 
+ def _close(x, e, nd):
+@@ -2020,6 +2116,96 @@ def _load_dsp_script():
+     return mod
+ 
+ 
++def _check_dtx_dose_runs(res_dtx, r_dtx, res_fake, r_fake):
++    """Code review F1.1, end to end: the heldout vad_gate dose reproduces the review's numbers; B2f (no b4 rows) reads
++    'dose unknown'; the fabricated arm's dose = DTX_FAKE_ROWS summed over epochs (the later epoch-1 row wins), ratio
++    vs the heldout share, rule 'under-dosed', and the dose / decision lines are printed."""
++    dd = (res_dtx or {}).get("dtx_dose") or {}
++    h = dd.get("heldout") or {}
++    ha = h.get("all") or {}
++    sh = [100 * ha.get("shares", {}).get(k, -1) for k in ("dtx_g0", "dtx_g1_20", "dtx_g20_40", "dtx_g40p")]
++    e = DSP_VAD_DOSE
++    ok = report("dsp_dtx_dose_heldout_reproduces_review",
++                ha.get("n") == e["n"] and _close(h.get("median"), e["median"], 3) and _close(h.get("mean"), e["mean"], 3)
++                and all(_close(a, b, 1) for a, b in zip(sh, e["shares_pct"])) and _close(ha.get("high_share"), e["high_share"], 3)
++                and dd.get("arm") is None and dd.get("rule") == "unknown"
++                and (res_dtx or {}).get("lever_verdict", {}).get("dose_rule") == "unknown",
++                f"heldout {h}; B2f arm {dd.get('arm')} rule {dd.get('rule')}",
++                [f"heldout vad_gate n {ha.get('n')}, median {h.get('median')}, mean {h.get('mean')}, shares % "
++                 f"{[round(x, 1) for x in sh]}, >= 20 % {ha.get('high_share')}; B2f (no b4 rows): rule {dd.get('rule')}"])
++    fd = (res_fake or {}).get("dtx_dose") or {}
++    a = fd.get("arm") or {}
++    got = {c: ((a.get(c) or {}).get("n"), round(((a.get(c) or {}).get("high_share") or 0) * ((a.get(c) or {}).get("n") or 0)),
++               (a.get(c) or {}).get("clips"), (a.get(c) or {}).get("fail")) for c in ("bona", "spoof")}
++    n_all = sum(v[0] for v in DTX_FAKE_EXPECT.values())
++    hi_all = sum(v[1] for v in DTX_FAKE_EXPECT.values())
++    exp_ratio = (hi_all / n_all) / ha["high_share"] if ha.get("high_share") else None
++    lines = [ln for ln in r_fake.stdout.splitlines() if ln.startswith("## dtx_gate dose") or ln.lstrip().startswith("dose_ratio")
++             or ln.startswith("## dtx_gate decision") or ln.lstrip().startswith("falsifier (1) [VAD") or ln.lstrip().startswith("decision:")]
++    rd = (res_fake or {}).get("dtx_gate_reading") or {}
++    ok &= report("dsp_dtx_dose_arm_from_metrics_jsonl",
++                 res_fake is not None and a.get("epochs") == [1, 2] and got == DTX_FAKE_EXPECT
++                 and _close(fd.get("ratio"), exp_ratio, 6) and fd.get("rule") == "under-dosed"
++                 and res_fake["lever_verdict"].get("dose_rule") == "under-dosed"
++                 and res_fake["lever_verdict"]["verdict"] == "not shown (criterion ii fails, VAD refuted)"
++                 and rd.get("dose_rule") == "under-dosed" and rd.get("falsifier1") is False and len(lines) == 5,
++                 f"rc {r_fake.returncode}; arm {got} (expect {DTX_FAKE_EXPECT}); ratio {fd.get('ratio')} (expect {exp_ratio}); "
++                 f"rule {fd.get('rule')}; {len(lines)} lines; {r_fake.stderr[-300:]}",
++                 [f"fabricated arm: per class (processed, >= 20 % gated, clips, fails) {got}; dose_ratio "
++                  f"{fd.get('ratio')}"] + lines)
++    return ok
++
++
++def _check_dtx_dose_rules(m):
++    """Code review F1.1 unit cases: bin edges = the lever's gated_bin; the dose rule; the dtx_gate lever verdict
++    (a null arm refutes only at an adequate measured dose, a positive result still counts); falsifier (1)-(3)
++    decisions (under-dosed -> owner, not Drop; (2) / (3) drop at any dose; O3.2 escape needs both readouts)."""
++    from b4wave import dsp_dtx
++    grid = [0.0, 0.005, 0.0099999, 0.01, 0.1, 0.1999999, 0.2, 0.3, 0.3999999, 0.4, 0.9, 1.0]
++    bad = [f for f in grid if m.dtx_bin(f) != dsp_dtx.gated_bin(f)]
++    ok = report("dsp_dtx_bins_match_lever", not bad and [k for k, _, _ in m.DTX_BINS] == list(dsp_dtx.BINS),
++                f"mismatch at {bad}; bins {[k for k, _, _ in m.DTX_BINS]} vs {dsp_dtx.BINS}")
++    held = {"all": m.dose_shares({"dtx_g0": 8, "dtx_g1_20": 419, "dtx_g20_40": 99, "dtx_g40p": 103})}
++    zero = {c: {**m.dose_shares({}), "clips": 100, "fail": 0} for c in ("bona", "spoof", "all")}
++    cases = [(m.dose_rule(None), "unknown"), (m.dose_rule(0.2499), "under-dosed"), (m.dose_rule(0.25), "adequate"),
++             (m.dose_rule(1.3), "adequate"), (m.dtx_dose(zero, held)["rule"], "under-dosed"),
++             (m.dtx_dose(None, held)["rule"], "unknown")]
++    ok &= report("dsp_dtx_dose_rule", all(x == y for x, y in cases) and m.DTX_DOSE_MIN == 0.25, f"{cases}")
++
++    def lv(vad, crit, dose):
++        res = {"contrasts": {"VAD": {"verdict": vad, "n_placebo": 2, "provisional": False}},
++               "anomaly": {"anomalous": False}, "tertiles": {"crit2_arm": crit}}
++        if dose is not None:
++            res["dtx_dose"] = {"rule": dose}
++        return m.lever_verdict("dtx_gate", res, {"crit2": {"full_final": {"mu": -10.2}}})["verdict"]
++    null = {"full_final": -12, "halfB_final": -14, "halfB_merge": -7}
++    pos = {"full_final": 6, "halfB_final": 0, "halfB_merge": 1}
++    cases = [(lv("refuted", null, "adequate"), "refuted"), (lv("refuted", null, "under-dosed"), "inconclusive (under-dosed)"),
++             (lv("refuted", null, None), "inconclusive (dose unknown)"),
++             (lv("directional", pos, "under-dosed"), "mechanism shown"), (lv("shown", pos, "adequate"), "mechanism shown (strong)"),
++             (lv("refuted", {"full_final": -5, "halfB_final": -1, "halfB_merge": -1}, "adequate"),
++              "not shown (criterion ii fails, VAD refuted)")]
++    ok &= report("dsp_dtx_lever_verdict_dose_rule", all(x == y for x, y in cases), f"{cases}")
++
++    def reading(dose="adequate", ratio=0.5, wf1=(0.1, 0.1), clean=(0.0, 0.0), vad_miss=20, underfit=False, star=0.37, c2=-12):
++        o = {k: {"wf1_delta": w, "clean_delta": c} for k, w, c in zip(("merge", "final"), wf1, clean)}
++        g = {k: {"arm": {"halfB_noisy": 30, "VAD_offline": vad_miss}, "bound": {"halfB_noisy": 36, "VAD_offline": 25}}
++             for k in ("merge", "final")}
++        res = {"contrasts": {"VAD": {"arm": {"did": star - 0.57}, "did_star": star}}, "outcome": {"arm": o},
++               "tertiles": {"crit2_arm": {"full_final": c2}}, "spoof_guards": g, "anomaly": {"underfit": underfit},
++               "readout": "final", "dtx_dose": {"rule": dose, "ratio": ratio}}
++        return m.dtx_gate_reading(res, {"crit2": {"full_final": {"mu": -10.2}}})["decision"]
++    cases = [(reading(), "DROP: falsifier (1)"), (reading("under-dosed", 0.06), "under-dosed: owner decides a dose variant"),
++             (reading("unknown", None), "unknown: owner decides a dose variant"),
++             (reading(wf1=(0.6, 0.5)), "no falsifier fires"), (reading(wf1=(0.6, 0.4)), "DROP: falsifier (1)"),
++             (reading(star=-0.01), "no falsifier fires"), (reading(c2=-10), "no falsifier fires"),
++             (reading("under-dosed", 0.06, vad_miss=26), "DROP: falsifier (2)"),
++             (reading("under-dosed", 0.06, clean=(0.0, -0.6)), "DROP: falsifier (2)"),
++             (reading("under-dosed", 0.06, underfit=True), "DROP: falsifier (3)")]
++    ok &= report("dsp_dtx_falsifier_decisions", all(x.startswith(y) for x, y in cases), f"{cases}")
++    return ok
++
++
+ def check_dsp_slices():
+     """scripts/b4_dsp_slices.py on B2f itself (CLI + JSON) reproduces the plan tables; verdict-rule unit cases."""
+     import tempfile
+@@ -2043,6 +2229,11 @@ def check_dsp_slices():
+         r_opus = subprocess.run([sys.executable, "-B", str(script), "--run", str(b2f_final), "--lever", "opus_plc",
+                                  "--json_out", str(out_opus)], cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900)
+         res_opus = json.loads(out_opus.read_text(encoding="utf-8")) if r_opus.returncode == 0 and out_opus.is_file() else None
++        arm = _fake_dtx_arm(tmp, b2f_final.parents[1])
++        out_fake = Path(tmp) / "fake_dtx.json"
++        r_fake = subprocess.run([sys.executable, "-B", str(script), "--run", str(arm / "local_eval/epoch_8"), "--lever", "dtx_gate",
++                                 "--json_out", str(out_fake)], cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900)
++        res_fake = json.loads(out_fake.read_text(encoding="utf-8")) if r_fake.returncode == 0 and out_fake.is_file() else None
+     ok = report("dsp_slices_runs", True)
+     orr = (res_opus or {}).get("opus_plc_reading") or {}
+     olines = [ln for ln in r_opus.stdout.splitlines() if ln.startswith("## opus_plc decision") or ln.startswith("  falsifier")
+@@ -2062,6 +2253,7 @@ def check_dsp_slices():
+                  and res_dtx["lever_verdict"]["verdict"] == "not shown (criterion ii fails, VAD refuted)",
+                  f"rc {r_dtx.returncode}; reading {fr}; verdict {(res_dtx or {}).get('lever_verdict')}",
+                  [f"B2f vs itself, --lever dtx_gate: {line}", f"lever verdict: {(res_dtx or {}).get('lever_verdict', {}).get('verdict')}"])
++    ok &= _check_dtx_dose_runs(res_dtx, r_dtx, res_fake, r_fake)
+     P = res["panel"]
+     bad = []
+     for c, (n, rec, g, d, within, pan, hb, clip, bar) in DSP_EXPECTED.items():
+@@ -2147,6 +2339,7 @@ def check_dsp_slices():
+              (fill_case(-0.50, -0.01), "transfer claimable (CNG-fill DiD* < 0)"),
+              (fill_case(-0.10, 0.10), "no fill-specific gain"), (fill_case(-0.42, 0.0), "near-in-distribution (gain confined to vad:zero)")]
+     ok &= report("dsp_vad_fill_reading", all(a == b for a, b in cases), f"{cases}")
++    ok &= _check_dtx_dose_rules(m)
+ 
+     # opus_plc falsifier (3) (plan 2.3): the zero-loss control's WF1 gain vs the arm's
+     cases = [(m.attribution(0.4, 0.2), "credited to the decoder path"), (m.attribution(0.4, 0.19), "credited to PLC"),
+@@ -2158,7 +2351,7 @@ def check_dsp_slices():
+ 
+ # --------------------------------------------------------------------------- #
+ CPU_GROUPS = ["module", "flags", "augmenter", "reserve_names", "imports", "trainer", "data", "apm", "apm_balance",
+-              "dtx", "dtx_balance", "codec_draw_order", "opus_plc", "timing", "dsp_slices"]
++              "dtx", "dtx_balance", "codec_draw_order", "opus_plc", "lever_failures", "timing", "dsp_slices"]
+ 
+ 
+ def main():
+diff --git a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/dsp_apm.py b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/dsp_apm.py
+index aba23e3..898033f 100644
+--- a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/SLS_setup/b4wave/dsp_apm.py
++++ b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/SLS_setup/b4wave/dsp_apm.py
+@@ -133,13 +133,16 @@ def _band_att_db(x, y, lo_hz, hi_hz):
+ 
+ 
+ def _lag(x, y, max_lag=200):
+-    """Lag (samples) of y relative to x maximising their correlation, in [-max_lag, max_lag]."""
++    """Lag (samples) of y relative to x maximising their correlation, in [-max_lag, max_lag].
++    Sums of elementwise products, not np.dot: the dot product wakes numpy's multi-threaded OpenBLAS,
++    whose spinning threads are billed to the process (review F1.2; as dsp_dtx.lpc)."""
+     x = np.asarray(x, np.float64)
+     y = np.asarray(y, np.float64)
+     core = slice(max_lag, len(x) - max_lag)
++    xc = x[core]
+     best, best_v = 0, -np.inf
+     for d in range(-max_lag, max_lag + 1):
+-        v = float(np.dot(x[core], y[core.start + d:core.stop + d]))
++        v = float(np.sum(xc * y[core.start + d:core.stop + d]))
+         if v > best_v:
+             best, best_v = d, v
+     return best
+diff --git a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/scripts/b4_dsp_slices.py b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/scripts/b4_dsp_slices.py
+index 35f5264..03d68ce 100644
+--- a/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r1/scripts/b4_dsp_slices.py
++++ b/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/review/snap_r2/scripts/b4_dsp_slices.py
+@@ -17,7 +17,9 @@ moved toward bona). Calibrated on the pinned null panel (9 earlier runs that nev
+ flagged "failed run, excluded"): DiD* = DiD - mu, z = DiD* / sd, bar = min(mu - 2 sd, panel min, mu - 0.4 G).
+ Verdicts (shown / directional / inconclusive / refuted), placebo arms, the run-anomaly flag (O3.1), the heldout-F1
+ outcome table with the panel SD and clearing counts (O3.2) and the missing-placebo rule (O3.3): see
+-SLS_setup/b4wave/README.md "Mechanism readout and verdict rules".
++SLS_setup/b4wave/README.md "Mechanism readout and verdict rules". With --lever dtx_gate the arm's realised gating dose
++(metrics.jsonl b4 rows) is printed next to the heldout vad_gate's, and the pre-registered dose rule (code review F1.1)
++keeps an under-dosed null arm from reading as "refuted" / "Drop".
+ 
+ `--run` is the readout the verdict is issued on (primary: the final epoch); condition (d) and the outcome table
+ use both readouts of the arm (`--run_pair`, default: the arm's local_eval/merge_top5 and its highest epoch_N).
+@@ -64,6 +66,12 @@ HELDOUT_THRESHOLDS = (0.5, 0.8)
+ # opus_plc decision lines (plan 2.3 predicted signature / falsifiers; O3.2)
+ OPUS_APP_GUARD, OPUS_APP_DROP = ("opus:qq", "opus:wechat"), 6.0     # matched bona recall per app: down <= 6 points
+ MATCHED_DROP, WF1_FALSIFIER, EP1_ACC_BAND, ATTRIBUTION_SHARE = 0.5, -0.5, 2.0, 0.5
++# dtx_gate dose (code review F1.1): realised gated-fraction bins, edges = b4wave.dsp_dtx.gated_bin ([lo, hi))
++DTX_BINS = (("dtx_g0", 0.0, 0.01), ("dtx_g1_20", 0.01, 0.20), ("dtx_g20_40", 0.20, 0.40), ("dtx_g40p", 0.40, math.inf))
++DTX_HIGH = ("dtx_g20_40", "dtx_g40p")               # ">= 20 % of the clip gated"
++DTX_DOSE_MIN = 0.25             # dose_ratio below this: under-dosed (no "refuted", falsifier (1) -> owner, not Drop)
++DTX_WF1_ESCAPE = 0.5            # plan 2.2 falsifier (1) "with WF1 delta < +0.5", read on both readouts (O3.2)
++DTX_GUARDS = ("halfB_noisy", "VAD_offline")         # plan 2.2 falsifier (2): noisy / VAD spoof-miss guards
+ 
+ 
+ def _has(chain, key, value=None):
+@@ -509,9 +517,12 @@ def analyse(args):
+     anomalous = bool(z_bad) or underfit or clean_bad
+     res["anomaly"] = {"anomalous": anomalous, "z_gt3_nontarget": z_bad, "underfit": underfit, "clean_guard": clean_bad,
+                       "underfit_thresholds": {"ep1_acc_lt": acc_thr, "last_loss_gt": loss_thr}, "heldout_recall_down": recall_down}
++    if lever == "dtx_gate":                  # review F1.1: realised dose vs the heldout vad_gate (feeds the verdict)
++        res["dtx_dose"] = dtx_dose(arm_dtx_dose(run.run_dir), heldout_vad_dose())
+     res["lever_verdict"] = lever_verdict(lever, res, panel)
+     if lever == "dtx_gate":                  # O2.3 report: the VAD contrast split by fill (not a verdict rule)
+         res["vad_fill_reading"] = vad_fill_reading(res["contrasts"], panel_v)
++        res["dtx_gate_reading"] = dtx_gate_reading(res, panel)
+     if lever == "opus_plc":                  # plan 2.3 decision lines (falsifiers, guards, attribution control)
+         ctrl = [Readout(x) for x in args.attribution_control] if getattr(args, "attribution_control", None) else None
+         res["opus_plc_reading"] = opus_plc_reading(res, arm_by_kind, ref_by_kind, run.run_dir, ctrl)
+@@ -541,6 +552,138 @@ def vad_fill_reading(contrasts, panel):
+             "cng_did": contrasts["VAD_cng"]["arm"]["did"], "cng_did_star": c, "reading": reading}
+ 
+ 
++def dtx_bin(frac):
++    """The gated-fraction bin of b4wave.dsp_dtx.gated_bin (< 1 / 1-20 / 20-40 / >= 40 %)."""
++    return next(k for k, lo, hi in DTX_BINS if frac < hi)
++
++
++def dose_shares(counts):
++    """{bin: count} -> n, shares per bin and the >= 20 % share (None for n = 0)."""
++    n = int(sum(counts.get(k, 0) for k, _, _ in DTX_BINS))
++    shares = {k: (counts.get(k, 0) / n if n else None) for k, _, _ in DTX_BINS}
++    return {"n": n, "counts": {k: int(counts.get(k, 0)) for k, _, _ in DTX_BINS}, "shares": shares,
++            "high_share": (sum(counts.get(k, 0) for k in DTX_HIGH) / n if n else None)}
++
++
++def heldout_vad_dose():
++    """
++    The reserved vad_gate's dose: the realised gated fraction of every heldout clip with a vad stage
++    (data/dev_noisy_sim/heldout_v1/meta.csv, dsp_chain {"vad": .., "gated": ..}), binned like dtx_gate; all clips
++    and per class, plus median / mean. A property of the eval set, read here, never used in training.
++    """
++    fr = {"all": [], "bona": [], "spoof": []}
++    for r in meta("heldout").values():
++        for st in r["chain"]:
++            if "vad" in st and "gated" in st:
++                g = float(st["gated"])
++                fr["all"].append(g)
++                fr["bona" if r["label"] == "bonafide" else "spoof"].append(g)
++    out = {}
++    for k, v in fr.items():
++        counts = {}
++        for g in v:
++            counts[dtx_bin(g)] = counts.get(dtx_bin(g), 0) + 1
++        out[k] = dose_shares(counts)
++    out["median"] = float(np.median(fr["all"])) if fr["all"] else None
++    out["mean"] = float(np.mean(fr["all"])) if fr["all"] else None
++    return out
++
++
++def arm_dtx_dose(run_dir):
++    """
++    The arm's realised dtx_gate dose: the dtx_g* counts (processed clips by gated-fraction bin), fail_wrtc_dtx and
++    the clip count n per class, summed over epochs from <run>/metrics.jsonl["b4"]["aug_by_class"] (a later row for
++    the same epoch wins, as the trainer's read_metrics). None without b4 rows (levers-off run, missing file).
++    """
++    p = Path(run_dir) / "metrics.jsonl"
++    rows = {}
++    if p.is_file():
++        for line in p.read_text(encoding="utf-8").splitlines():
++            if line.strip():
++                row = json.loads(line)
++                rows[row["epoch"]] = row
++    epochs, acc = [], {c: {"counts": {}, "clips": 0, "fail": 0} for c in ("bona", "spoof")}
++    for ep, row in sorted(rows.items()):
++        abc = (row.get("b4") or {}).get("aug_by_class")
++        if not abc:
++            continue
++        epochs.append(ep)
++        for c in ("bona", "spoof"):
++            d = abc.get(c) or {}
++            cnt = d.get("counts") or {}
++            acc[c]["clips"] += int(d.get("n", 0))
++            acc[c]["fail"] += int(cnt.get("fail_wrtc_dtx", 0))
++            for k, _, _ in DTX_BINS:
++                acc[c]["counts"][k] = acc[c]["counts"].get(k, 0) + int(cnt.get(k, 0))
++    if not epochs:
++        return None
++    out = {"epochs": epochs}
++    for c in ("bona", "spoof"):
++        out[c] = {**dose_shares(acc[c]["counts"]), "clips": acc[c]["clips"], "fail": acc[c]["fail"]}
++    tot = {k: acc["bona"]["counts"][k] + acc["spoof"]["counts"][k] for k, _, _ in DTX_BINS}
++    out["all"] = {**dose_shares(tot), "clips": acc["bona"]["clips"] + acc["spoof"]["clips"],
++                  "fail": acc["bona"]["fail"] + acc["spoof"]["fail"]}
++    return out
++
++
++def dose_rule(ratio):
++    """Pre-registered (code review F1.1): 'under-dosed' below DTX_DOSE_MIN, 'unknown' without telemetry."""
++    if ratio is None:
++        return "unknown"
++    return "under-dosed" if ratio < DTX_DOSE_MIN else "adequate"
++
++
++def dtx_dose(arm, heldout):
++    """dose_ratio = the arm's >= 20 %-gated share of its processed clips (both classes pooled) / the heldout
++    vad_gate's (0.321); per-class ratios are printed, the rule uses the pooled one."""
++    h = heldout["all"]["high_share"]
++    ratio, by_class = None, {}
++    if arm is not None and h:
++        a = arm["all"]["high_share"]
++        ratio = (a or 0.0) / h                  # no processed clip: ratio 0 (under-dosed)
++        by_class = {c: (arm[c]["high_share"] or 0.0) / h for c in ("bona", "spoof")}
++    return {"arm": arm, "heldout": heldout, "ratio": ratio, "ratio_by_class": by_class, "min_ratio": DTX_DOSE_MIN,
++            "rule": dose_rule(ratio)}
++
++
++def dtx_gate_reading(res, panel):
++    """
++    dtx_gate decision lines (plan 2.2 falsifiers; code review F1.1 dose rule). (2) clean F1 down > 0.5 or a noisy /
++    VAD spoof-miss guard broken, on either readout -> Drop; (3) the shared under-fit falsifier -> Drop; (1) VAD DiD*
++    >= 0 (verdict readout) AND drop_high - drop_low <= the panel mean (full set, final) AND no outcome escape (WF1
++    delta >= +0.5 on merge_top5 AND final) -> Drop only at an adequate dose; under-dosed (dose_ratio < 0.25) or
++    unknown dose -> the owner decides a dose variant (not a Drop).
++    """
++    c, o, dose = res["contrasts"]["VAD"], res["outcome"], res.get("dtx_dose") or {"rule": "unknown", "ratio": None}
++    c2 = res["tertiles"]["crit2_arm"].get("full_final")
++    mu2 = panel["crit2"]["full_final"]["mu"]
++    wf1 = {k: v["wf1_delta"] for k, v in o["arm"].items()}
++    escape = len(wf1) == 2 and all(v >= DTX_WF1_ESCAPE for v in wf1.values())
++    null = bool(c["did_star"] >= 0 and c2 is not None and c2 <= mu2)
++    f1 = null and not escape
++    clean = {k: v["clean_delta"] for k, v in o["arm"].items() if v["clean_delta"] < -CLEAN_DROP}
++    broken = {f"{k}:{g}": v["arm"][g] for k, v in res["spoof_guards"].items() for g in DTX_GUARDS if v["arm"][g] > v["bound"][g]}
++    f2 = bool(clean) or bool(broken)
++    f3 = bool(res["anomaly"]["underfit"])
++    if f2:
++        decision = "DROP: falsifier (2) fires (the gating pattern carries class information)"
++    elif f3:
++        decision = "DROP: falsifier (3) fires (shared under-fit)"
++    elif f1 and dose["rule"] == "adequate":
++        decision = "DROP: falsifier (1) fires (gating is not what drives the core)"
++    elif f1:
++        why = ("dose unmeasured (no metrics.jsonl b4 rows)" if dose["ratio"] is None
++               else f"dose ratio {dose['ratio']:.3f} < {DTX_DOSE_MIN:g}")
++        decision = f"{dose['rule']}: owner decides a dose variant (falsifier (1)'s mechanism null at {why}; not a Drop)"
++    else:
++        decision = "no falsifier fires; decide on the lever verdict and the wave's WF1 CI rule"
++    return {"verdict_readout": res["readout"], "vad_did": c["arm"]["did"], "vad_did_star": c["did_star"],
++            "crit2_full_final": c2, "crit2_panel_mu": mu2, "wf1_delta": wf1, "escape": bool(escape),
++            "escape_readouts": "merge_top5 AND final", "mechanism_null": null, "falsifier1": bool(f1),
++            "falsifier2": f2, "clean_below": clean, "guards_broken": broken, "falsifier3": f3,
++            "dose_ratio": dose["ratio"], "dose_rule": dose["rule"], "decision": decision}
++
++
+ def matched_app_recall(ro, app):
+     """Matched bona recall (%) of one Opus app profile (metrics.json breakdowns, full set); None if absent."""
+     v = ro.metrics().get("breakdowns", {}).get("sim_matched_v1", {}).get("codec", {}).get(app)
+@@ -624,7 +767,9 @@ def lever_verdict(lever, res, panel):
+         vad = c["VAD"]["verdict"]
+         mu2 = panel["crit2"]["full_final"]["mu"]
+         if vad == "refuted" and c2.get("full_final", 99) <= mu2:
+-            v = "refuted"
++            # code review F1.1 dose rule: a null arm refutes only at an adequate measured dose
++            dose = (res.get("dtx_dose") or {}).get("rule", "unknown")
++            v = "refuted" if dose == "adequate" else f"inconclusive ({'under-dosed' if dose == 'under-dosed' else 'dose unknown'})"
+         elif ii and vad in ("shown", "directional"):
+             v = "mechanism shown (strong)" if vad == "shown" else "mechanism shown"
+         else:
+@@ -635,8 +780,11 @@ def lever_verdict(lever, res, panel):
+     if anomalous and v.startswith("mechanism shown"):
+         v = "confounded (run anomaly)"
+     target = LEVER_TARGET[lever]
+-    return {"verdict": v, "n_placebo": c[target]["n_placebo"], "provisional": c[target]["provisional"],
+-            "lower_p_retry_allowed": lever == "apm_ns" and v == "mechanism shown"}
++    out = {"verdict": v, "n_placebo": c[target]["n_placebo"], "provisional": c[target]["provisional"],
++           "lower_p_retry_allowed": lever == "apm_ns" and v == "mechanism shown"}
++    if lever == "dtx_gate":
++        out["dose_rule"] = (res.get("dtx_dose") or {}).get("rule", "unknown")
++    return out
+ 
+ 
+ # ------------------------------------------------------------------------------------------- printing
+@@ -646,6 +794,57 @@ def fmt(x, nd=2, sign=True):
+     return f"{x:+.{nd}f}" if sign else f"{x:.{nd}f}"
+ 
+ 
++def _pct(x):
++    return "n/a" if x is None else f"{100 * x:.1f} %"
++
++
++def _dose_row(d):
++    return ("  ".join(f"{k[4:]} {_pct(d['shares'][k])}" for k, _, _ in DTX_BINS)
++            + f"  | >= 20 % gated {_pct(d['high_share'])}")
++
++
++def print_dtx_dose(dd):
++    """The arm's realised dtx_gate dose next to the heldout vad_gate's, and the dose rule (code review F1.1)."""
++    h, a = dd["heldout"], dd["arm"]
++    print(f"## dtx_gate dose (review F1.1): gated-fraction bins of the processed clips (g0 < 1 %, g1_20, g20_40, "
++          f"g40p >= 40 %)")
++    if a is None:
++        print("  arm: n/a (no metrics.jsonl b4 rows: a levers-off run or a missing file)")
++    else:
++        ep = a["epochs"]
++        print(f"  arm, summed over epochs {ep[0]}-{ep[-1]} ({len(ep)} rows, metrics.jsonl b4.aug_by_class):")
++        for c in ("bona", "spoof", "all"):
++            d = a[c]
++            print(f"    {c:5s} processed {d['n']}/{d['clips']} ({_pct(d['n'] / d['clips'] if d['clips'] else None)})"
++                  f", fail_wrtc_dtx {d['fail']}: {_dose_row(d)}")
++    print(f"  heldout vad_gate (data/dev_noisy_sim/heldout_v1/meta.csv, dsp_chain 'gated'; n {h['all']['n']}, "
++          f"median {fmt(h['median'], 3, False)}, mean {fmt(h['mean'], 3, False)}):")
++    for c in ("bona", "spoof", "all"):
++        print(f"    {c:5s} n {h[c]['n']}: {_dose_row(h[c])}")
++    by = ", ".join(f"{c} {v:.3f}" for c, v in dd["ratio_by_class"].items())
++    print(f"  dose_ratio = arm >= 20 % share / heldout >= 20 % share = {fmt(dd['ratio'], 3, False)}"
++          f"{f' (by class: {by})' if by else ''}; rule: < {dd['min_ratio']:g} -> under-dosed (the lever verdict cannot be"
++          f" 'refuted'; falsifier (1) -> owner decides a dose variant, not Drop) -> {dd['rule'].upper()}")
++
++
++def print_dtx_reading(r):
++    """dtx_gate decision lines (plan 2.2 falsifiers (1)-(3), code review F1.1 dose rule)."""
++    c2 = "n/a" if r["crit2_full_final"] is None else f"{r['crit2_full_final']:+d}"
++    wf1 = ", ".join(f"{k} {fmt(v)}" for k, v in r["wf1_delta"].items()) or "n/a"
++    print(f"## dtx_gate decision lines (plan 2.2 falsifiers; review F1.1 dose rule): VAD DiD {fmt(r['vad_did'])} DiD* "
++          f"{fmt(r['vad_did_star'])} ({r['verdict_readout']} readout); drop_high - drop_low (full, final) {c2} "
++          f"(panel mean {fmt(r['crit2_panel_mu'], 1)})")
++    print(f"  falsifier (1) [VAD DiD* >= 0 AND drop_high - drop_low <= panel mean AND NOT WF1 delta >= "
++          f"+{DTX_WF1_ESCAPE:g} on {r['escape_readouts']}]: {'FIRES' if r['falsifier1'] else 'does not fire'} "
++          f"(mechanism null {r['mechanism_null']}; WF1 delta {wf1}; escape {r['escape']}); dose {r['dose_rule']}"
++          f" (ratio {fmt(r['dose_ratio'], 3, False)})")
++    print(f"  falsifier (2) [clean F1 delta < -{CLEAN_DROP:g} or a noisy / VAD spoof-miss guard broken, either readout]: "
++          f"{'FIRES' if r['falsifier2'] else 'does not fire'} (clean below {({k: round(v, 2) for k, v in r['clean_below'].items()})},"
++          f" guards broken {r['guards_broken']})")
++    print(f"  falsifier (3) [shared under-fit]: {'FIRES' if r['falsifier3'] else 'does not fire'}")
++    print(f"  decision: {r['decision']}")
++
++
+ def print_report(res):
+     P = res["panel"]
+     print(f"B4 mechanism readout: {res['run']}  (readout {res['readout']}, lever {res['lever']}"
+@@ -713,12 +912,17 @@ def print_report(res):
+     lv = res["lever_verdict"]
+     print(f"\n## Lever verdict ({res['lever']}): {lv['verdict'].upper()}"
+           f"{' (provisional)' if lv.get('provisional') else ''}  [placebos {lv['n_placebo']}]"
+-          + (f"  lower-p retry allowed: {lv['lower_p_retry_allowed']}" if res["lever"] == "apm_ns" else ""))
++          + (f"  lower-p retry allowed: {lv['lower_p_retry_allowed']}" if res["lever"] == "apm_ns" else "")
++          + (f"  dose: {lv['dose_rule']}" if res["lever"] == "dtx_gate" else ""))
++    if "dtx_dose" in res:
++        print_dtx_dose(res["dtx_dose"])
+     if "vad_fill_reading" in res:
+         f = res["vad_fill_reading"]
+         print(f"## Report (O2.3, not a verdict rule): VAD by fill -- vad:zero DiD {fmt(f['zero_did'])} DiD* {fmt(f['zero_did_star'])}"
+               f" (near-in-distribution bar <= {fmt(f['zero_bar'])}); vad:cng DiD {fmt(f['cng_did'])} DiD* {fmt(f['cng_did_star'])}"
+               f" (transfer needs < 0) -> {f['reading']}")
++    if "dtx_gate_reading" in res:
++        print_dtx_reading(res["dtx_gate_reading"])
+     if "opus_plc_reading" in res:
+         r = res["opus_plc_reading"]
+         print(f"## opus_plc decision lines (plan 2.3, O3.2; report, the verdict stays capped at 'directional'): online PLC "

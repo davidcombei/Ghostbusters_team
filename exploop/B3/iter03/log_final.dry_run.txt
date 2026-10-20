@@ -1,0 +1,34 @@
+metrics: SLS_setup/exp/B3c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs10_s1234_epoch8_bs8_20261010234200/local_eval/epoch_8/metrics.json
+
+  id                  B3c-cjs10-ep8
+  date                2026-10-11
+  owner               tmarchitan
+  git_sha             df3dff2+dirty
+  config_hash         ef85fa8212
+  model               SLS_setup/exp/B3c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs10_s1234_epoch8_bs8_20261010234200/ckpt/epoch_8_dev_loss_0.177305.pth
+  change_vs_ref       --consistency_lambda 0.3 -> 1.0 (JS consistency dose step; everything else identical to B3a, incl. --consistency js --consistency_pairs both --batch_size 8)
+  clean_f1            97.20
+  matched_f1          92.27
+  heldout_f1          89.35
+  echo_f1             94.37
+  wf1@0.5             92.73
+  wf1@oracle          92.98
+  eer_clean           3.10
+  eer_matched         8.82
+  eer_heldout         11.84
+  eer_echo            5.94
+  recall_spoof_noisy  99.06
+  recall_bona_noisy   76.53
+  progress_score      
+  gpu_h               7.76
+  decision            drop
+  notes               exploop wave B3 iteration 3 (final readout); verdict: null (inside +-0.5); report: docs/experiments-exploration/b3-experiments/20261011_075030_B3c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs10_s1234.md
+  seed                1234
+  half_b_wf1          92.44
+  ci_low              
+  ci_high             
+
+vs B3a-cjs03-ep8:  half_B WF1 -0.50   full WF1 -0.05   clean F1 +0.14   matched +0.47   heldout -0.74   echo -0.03
+Decision rule (next_steps_plan.md): promote only if the paired-bootstrap 95% CI of dWF1 (half_B) excludes 0 and clean F1 drops by <= 0.5; otherwise 'no effect'.
+
+(dry run: nothing written)

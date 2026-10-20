@@ -1,0 +1,61 @@
+{
+  "round": 1,
+  "report_path": "rdloop/B4/review/code_review_r1.md",
+  "headline": "The module conforms to the plan on all three levers, levers-off is the B3 object itself, and checks cpu passes 117/117. One major finding: dtx_gate under-doses the mechanism (0.5-2.5% of training clips have \u226520% gated vs 32.1% for the heldout vad_gate), so a null arm would be misread as refuted. Fix is readout-only. Two minor findings.",
+  "verdict": "fix",
+  "findings": [
+    {
+      "id": "F1.1",
+      "lever_id": "dtx_gate",
+      "severity": "major",
+      "category": "plan",
+      "file": "SLS_setup/b4wave/dsp_dtx.py",
+      "line": 84,
+      "issue": "The realised gating dose is far below the reserved eval op's. dtx_balance on real training clips (checks_cpu.log:174,178): mean gated fraction 0.058/0.046 (bona/spoof, no stage) and 0.045/0.032 (after the B3 stage). Clips with \u226520% gated (dtx_g20_40+g40p): 5, 4, 3 and 1 of 200. Heldout vad_gate (computed from data/dev_noisy_sim/heldout_v1/meta.csv, n 629): median 0.125, mean 0.233, bins g0 1.3% / g1_20 66.6% / g20_40 15.7% / g40p 16.4%, so 32.1% of clips are \u226520% gated. The plan expected modes 2-3 to fill dtx_g40p (plan_agreed.md:479); it holds 0-1 of 200. Cause: webrtcvad's internal 100-330 ms overhang plus U(40,200) ms hangover gate only pauses longer than ~0.2-0.5 s (README l.102-103). The engineer logged this as an open issue without a decision. Falsifier (1) (plan_agreed.md:460-461) and b4_dsp_slices.py:626 would read a null arm as 'gating does not drive the core. Drop.'",
+      "fix": "Readout and README only, no training change. (1) With --lever dtx_gate, b4_dsp_slices.py prints the arm's realised dtx_g* bin shares per class, summed over epochs, from metrics.jsonl['b4']['aug_by_class'], next to the heldout vad_gate shares from heldout_v1/meta.csv (1.3/66.6/15.7/16.4%). (2) Pre-register a dose rule in the script and in the README verdict rules: dose_ratio = arm share(g20_40+g40p) / 0.321. If dose_ratio < 0.25, the lever verdict cannot be 'refuted': it reads 'inconclusive (under-dosed)', and falsifier (1) reports 'under-dosed: owner decides a dose variant' instead of Drop. A positive result still counts. (3) List the dose as an open issue for the owner before smoke. A higher-dose variant (e.g. hangover U(0,200) ms, or p up) is a training change and needs the owner."
+    },
+    {
+      "id": "F1.2",
+      "lever_id": "apm_ns",
+      "severity": "minor",
+      "category": "perf",
+      "file": "SLS_setup/b4wave/dsp_apm.py",
+      "line": 142,
+      "issue": "The start-up selftest's _lag runs 401 np.dot calls per level on ~90k-sample vectors. This wakes numpy's multi-threaded OpenBLAS: the static run logged apm selftest CPU 546.91 s vs dtx 1.12 s and opus 0.36 s (checks_cpu.log:100,157,205). My 8-CPU run: measure() 1.3 s wall / 4.8 CPU-s, and 1.3/1.3 with OPENBLAS_NUM_THREADS=1. Four wrtc_ns calls right after cost 0.39 vs 0.04 CPU-s because the threads are still spinning. Main process at start-up only. dsp_dtx.lpc avoids the same pitfall (dsp_dtx.py:128-129).",
+      "fix": "Compute the lag without BLAS (elementwise products and sums, or np.correlate on a 1 s excerpt), or run measure() under threadpoolctl.threadpool_limits(1). Keep the [aligned] assert."
+    },
+    {
+      "id": "F1.3",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "exploop_compat",
+      "file": "SLS_setup/b4wave/augment.py",
+      "line": 284,
+      "issue": "apm_ns (l.284) and dtx_gate (l.308) swallow worker-side exceptions silently: the clip passes through and a counter is incremented, nothing is printed. The wave's early check forbids 'failed \\(' (scripts/exploop/supervisor.py:606), the convention the parent's codec failure print follows. A systematic worker-side failure therefore first shows as fail_* counts in the epoch-1 B3 line (~30 min) and quietly turns the arm into a B2f replicate. The start-up selftests only cover the main process.",
+      "fix": "Print the first failure per process, e.g. '[b4wave] wrtc_ns failed (<exc>); passing through', and the same for wrtc_dtx, so lever failures fall under the same early-check policy as codec failures. Keep the counters."
+    }
+  ],
+  "resolved": [],
+  "plan_conformance": [
+    {
+      "lever_id": "apm_ns",
+      "ok": true,
+      "note": "Flags, defaults, choices, exact header, op wrtc_ns, lazy pywebrtc_audio, fresh primed NoiseSuppressor per clip: all as planned. Justified deviation: 96-sample latency compensation plus an [aligned] assert. The 4 named selftest asserts print their values. apm_balance has no WARN (max 0.30 dB). Timing factor 0.996."
+    },
+    {
+      "lever_id": "dtx_gate",
+      "ok": true,
+      "note": "The code matches the plan: webrtcvad mode/frame/hangover drawn from rng4, zero/LPC-CNG/mix fill, 5 ms ramps, exact header, op wrtc_dtx, extra speech_kept/cng_colour asserts, no balance WARN, timing 0.985. The realised dose is far below the eval op's (F1.1)."
+    },
+    {
+      "lever_id": "opus_plc",
+      "ok": true,
+      "note": "Encoder packets are byte-identical to ffmpeg's (21/21). GE mask, 48 kHz decode, 3x look-ahead trim, resample_poly, destroy in finally and the ffmpeg fallback on pre-drawn params are as planned. codec_draw_order is exact over 1,000 states and 14 real calls. Timing 0.841, and 0.109 vs 0.250 CPU-s per call. Accepted deviation: the zero-loss bar is pooled per profile (per clip, Train_038736 reads qq 14.78 / wechat 12.96 dB), as documented in the README. LOC is above the 280 estimate."
+    },
+    {
+      "lever_id": "",
+      "ok": true,
+      "note": "Shared core: the levers-off build returns the B3 object; __call__ mirrors the parent; rng4 = default_rng([seed,pid,0xB4]). Telemetry, config.yaml keys and lever headers appear only when a lever is on, and the exploop lines are unchanged. b4_dsp_slices.py implements plan 1.1 plus owner O3.1-O3.3 and reproduces every plan number (checks dsp_slices). Kept deviation: the b3wave: header line stays and b4wave: is added, which is harmless."
+    }
+  ]
+}

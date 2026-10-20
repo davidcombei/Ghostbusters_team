@@ -1,0 +1,106 @@
+{
+  "report_path": "docs/experiments-exploration/b3-experiments/20261011_075030_B3c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs10_s1234.md",
+  "headline": "B3c raised one flag over B3a, --consistency_lambda 0.3 -> 1.0, and lost (verdict.json: merge 92.28951037321083 vs base 93.05618353351335, delta -0.766673160302517, CI [-1.3067677768417916, -0.21743762825827398], clean_drop 0.23785041605697188, new_best false, decision drop, verdict negative; final 92.44187146959624 vs 92.94058874557216, delta -0.4987172759759204, CI [-1.045254749087946, 0.053382479857357466], verdict \"null (inside +-0.5)\", decision drop). The loss is a ranking loss on unseen conditions, and heldout carries most of it: heldout F1 -1.65 [-2.81, -0.55] on the merge and -1.46 [-2.68, -0.28] on ep8 (ci_vs_B3a-*.txt). Mean noisy EER rose 9.16 -> 9.96 and 9.01 -> 9.71 (compare_all_readouts.txt), and heldout EER is also worse on half A (computed from scores: 10.44 -> 11.96 merge, 11.10 -> 12.11 ep8). On the merge, the share of half_B noisy bona at p>=0.99 grew 17.6 -> 21.2 % and the share at p>=0.999 grew 9.2 -> 14.7 %; noisy bona false alarms went 180 -> 204 (computed). Spoof recall and clean F1 held. The tripled weight bought no extra view agreement: unweighted JS ended at 0.0044 vs B3a's 0.0038, and CE was higher at 7 of 8 epochs (metrics.jsonl). The JS weight is therefore an active ingredient, and raising it above 0.3 is harmful. B3a stays the reference. The next levers should widen the training degradation distribution (codec profiles, SNR range) or regularise without rewarding confident agreement (SpecAugment), not add more consistency.",
+  "went_ok": [
+    "Clean single-flag run: config.yaml differs only in consistency_lambda; header 'Consistency: js lambda_js=1 ... found': 37125 ... 16 clips per step (8 pairs)'; same 'Warmup-cosine: 3790 warmup / 75792 steps'; codec counts 151,570 = 2 x 75,785 every epoch; no Traceback / codec failure / pruning; git.diff touches no trainer code; 7 h 45 min (train.log, stdout log).",
+    "Closes the consistency-dose branch decisively. The merge CI excludes 0, and falsifier 1 did not fire (noisy EER +0.80, not within +-0.3 of 9.16), so the weight is active and harmful above 0.3. Both a further dose-up and js_emb are deprioritised.",
+    "No over-regularisation of spoof or clean (falsifier 2 not fired). On the merge, R_spoof rose on matched (99.38 -> 99.56) and heldout (99.06 -> 99.19); clean F1 was -0.24 on the merge and +0.14 on ep8; clean EER improved (3.32 -> 3.15 merge, 3.20 -> 3.10 ep8); half_B noisy spoof misses fell 25 -> 20; min slice R_spoof rose 97.02 -> 98.01.",
+    "Seen-distribution slices held or improved. Matched F1 was -0.34 / -0.08 with both CIs spanning 0. Matched snr 5 (+1.77) and opus:telegram (+1.85) gained on the merge, matched snr 10 (+1.63) and footsteps (+1.60) on ep8 (breakdowns).",
+    "The late-epoch decline of B3a is gone. The best mini epoch is 7 (92.92) and epoch 8 is 92.81. On half B the final epoch beats the merge (92.44 vs 92.29)."
+  ],
+  "went_wrong": [
+    "Merge half_B WF1 92.29 vs 93.06 (-0.77 [-1.31, -0.22]), verdict negative. Heldout carries 75 % of the merge loss and all of the ep8 loss: weighted -0.58 of -0.77 and -0.51 of -0.50 (compare_ci_vs_B3a-*.json). Echo merge -0.96 [-1.86, -0.07].",
+    "Ranking got worse, not just the threshold. Noisy EER 9.16 -> 9.96 (merge) and 9.01 -> 9.71 (ep8); WF1@oracle -0.61 / -0.72. Even at its per-set oracle (92.63), B3c-top5 stays below B3a-top5 at 0.5 (93.06). A global logit shift recovers only 0.10 on the merge (best logit +4.75).",
+    "The saturated noisy-bona core grew. On the merge, the share at p>=0.99 went 17.6 -> 21.2 % and at p>=0.999 9.2 -> 14.7 %; noisy false alarms 180 -> 204; English false alarms 91 -> 107. Heldout bona fixed/broken was 6/24 on the merge and 8/25 on ep8, two thirds Chinese.",
+    "Unseen-condition slices took the hits on the merge: heldout SNR-0 EER 15.08 -> 19.07, g726 EER 10.74 -> 13.37, door_wood_creaks EER 7.44 -> 14.10, heldout English EER 17.04 -> 20.27 and R_bona 60.85 -> 56.20.",
+    "The telemetry prediction failed. Unweighted JS was not lower (0.0044 vs 0.0038 at epoch 8; below B3a's at only 3 of 8 epochs); CE was higher at 7 of 8 epochs; epoch-8 dev loss was 0.1773 vs 0.1722, +90 % from epoch 1.",
+    "The selection metric missed the loss. Mini WF1@0.5 was above B3a's at 5 of 8 epochs (top-5 mean 92.54 vs 92.31), while mini noisy EER was worse at 6 of 8 epochs. The merge's gain_up bona probe flips rose 2.67 -> 6.42 %."
+  ],
+  "largest_remaining_error": "The largest remaining error is unchanged: confident noisy bona false alarms on the reference B3a-top5. They are 180 of 782 half_B noisy bona, 77 % of them at p_spoof >= 0.99, with English 91 and Chinese 89 (computed from B3a scores). The analysis localises them:\n- Four codecs hold 112 of the 180: heldout g726 36/129 and gsm 38/127, matched opus:qq 21/60 and opus:wechat 17/50.\n- SNR 0 holds 40 of the 180, a 32.5 % false-alarm rate against 23.0 % overall.\n\nThree things are ruled out:\n- More invariance on the existing augmentation distribution (B3c): it sharpened this tail to 21.2 % at p >= 0.99 and hurt heldout.\n- Exposure (B3b).\n- The operating point (B3b, B3c).\n\nThat leaves coverage of the training degradation distribution, and regularisation, as the open levers.",
+  "proposals": [
+    {
+      "rank": 1,
+      "kind": "config",
+      "lever": "codec_random (wave.json lever_queue): per-clip random Opus bitrate / frame size / VBR / packet-loss",
+      "change": {
+        "set": {
+          "--aug_codec_profiles": [
+            "random"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Heldout (75 % of B3c's merge loss, three quarters of B3a's gain) and the highest-FA codec slices: B3a-top5 half_B heldout g726 36/129, gsm 38/127, matched opus:qq 21/60, opus:wechat 17/50 (112 of 180 noisy bona FA).",
+      "hypothesis": "B3c showed that heldout errors do not yield to more invariance on the 7 fixed Opus app profiles. Randomising codec parameters widens the training channel distribution itself. The paired JS at 0.3 then enforces invariance across codec parameters, which should generalise to unseen g726/gsm and directly cover the low-bitrate qq/wechat conditions.",
+      "predicted_signature": "Merge vs B3a-top5:\n- heldout half_B F1 above 90.20 and R_bona above 74.94;\n- full-set heldout g726/gsm R_bona >= 3 above 71.14/72.76, with EER below 10.74/13.91;\n- half_B FA in g726+gsm below 74 and in qq+wechat below 38;\n- R_spoof within 0.5 of 99.38/99.06; clean F1 within 0.5 of 97.48; noisy EER below 9.16;\n- merge half_B WF1 above 93.06.",
+      "falsifier": "Wave rule vs B3a-top5 93.06: promote if delta > +0.5, CI excludes 0 and clean drop <= 0.5; null if within +-0.5; negative below -0.5. Delta within +-0.5 with g726/gsm R_bona within +-3 means codec diversity is not the limit. R_spoof down > 0.5 on matched or heldout means random profiles blur a spoof cue."
+    },
+    {
+      "rank": 2,
+      "kind": "config",
+      "lever": "snr_0_20 (wave.json lever_queue): extend the noise SNR range to 0-20 dB, uniform",
+      "change": {
+        "set": {
+          "--aug_snr_db": [
+            "0",
+            "20"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "SNR 0, the highest-FA SNR. On B3a-top5 it has 40 of 123 half_B noisy bona as FA (32.5 % vs 23.0 % overall), full-set R_bona 65.81/65.31 and EER 14.67/15.08; training never draws below 5 dB. B3c worsened heldout SNR-0 EER to 19.07.",
+      "hypothesis": "SNR-0 false alarms are out-of-range inputs. Drawing 0-5 dB in training puts low-SNR conditions in both views of a pair, so CE and consistency act on them, and SNR-0 bona separate from spoof.",
+      "predicted_signature": "Merge vs B3a-top5:\n- full-set SNR-0 EER below 14.67 (matched) / 15.08 (heldout);\n- SNR-0 R_bona up >= 3 on both sets, with R_spoof within 0.5 of 98.65/98.50;\n- half_B SNR-0 noisy FA below 40;\n- 15-20 dB R_bona within 2 of B3a (matched 82.57/85.83, heldout 74.17/79.86);\n- clean flat;\n- merge half_B WF1 above 93.06.",
+      "falsifier": "Wave rule vs B3a-top5 93.06 (promote > +0.5 with CI excluding 0 and clean drop <= 0.5; null +-0.5; negative < -0.5). Delta within +-0.5 with SNR-0 R_bona within +-3 means the SNR range is not the limit. A > 2 R_bona drop at 15-20 dB means the 0-20 draw diluted the high-SNR mass."
+    },
+    {
+      "rank": 3,
+      "kind": "config",
+      "lever": "specaug (wave.json lever_queue): time/frequency masking on the log-mel input, default masks",
+      "change": {
+        "set": {
+          "--specaug": []
+        },
+        "remove": []
+      },
+      "targets": "Overconfidence and overfitting:\n- dev loss rises from epoch 1 in B3a (+74 %), B3b (+83 %) and B3c (+90 %);\n- train acc reaches 99.66-99.71 %;\n- the B3a-top5 noisy bona share at p>=0.999 is 9.2 %, and B3c's agreement pressure pushed it to 14.7 %.",
+      "hypothesis": "Input masking regularises without rewarding confident agreement: two saturated posteriors already have JS ~ 0. It blocks clip-specific memorisation and should thin the saturated noisy-bona tail rather than sharpen it, improving noisy ranking.",
+      "predicted_signature": "- epoch-8 dev loss below 0.1722;\n- mini WF1 not falling after its peak;\n- half_B noisy bona share at p>=0.999 below 9.2 % and at p>=0.99 below 17.6 % (merge);\n- noisy EER below 9.16;\n- clean F1 within 0.5 of 97.48 and R_spoof within 0.5;\n- merge half_B WF1 above 93.06.",
+      "falsifier": "Wave rule vs B3a-top5 93.06 (promote > +0.5 with CI excluding 0 and clean drop <= 0.5; null +-0.5; negative < -0.5). Delta within +-0.5 with epoch-8 dev loss >= 0.17 means masking does not regularise this backbone. R_spoof down > 0.5 on matched or heldout means the masks remove a spoof cue."
+    },
+    {
+      "rank": 4,
+      "kind": "config",
+      "lever": "consistency_lambda dose step down to 0 (control for B3a's step/view confound; views, pairs, --batch_size 8 and 75,792 steps unchanged)",
+      "change": {
+        "set": {
+          "--consistency_lambda": [
+            "0.0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "The full-run recipe question B3c left open. B3c shows the dose response above 0.3 is negative and that extra weight did not lower unweighted JS (0.0044 vs 0.0038). It is still unknown whether JS at 0.3 contributes at all, or whether B3a's +1.08 came from the paired views plus doubled steps.",
+      "hypothesis": "Null form: the divergence term is inert at 0.3, and B3a's gain over B2f comes from the two views per clip and the doubled optimiser steps. Removing only the JS gradient then leaves half_B WF1 and noisy EER unchanged.",
+      "predicted_signature": "If JS is inert:\n- merge half_B WF1 within +-0.5 of 93.06;\n- noisy EER within +-0.3 of 9.16;\n- the logged (unweighted) JS higher than B3a's at most epochs;\n- clean and R_spoof unchanged.",
+      "falsifier": "Delta < -0.5 with noisy EER >= 9.46 means JS at 0.3 is an active ingredient: keep 0.3, since the optimum lies between 0 and 1.0. Delta > +0.5 (CI excluding 0) means JS hurts at any weight in this recipe: drop it from the full run. Wave rule as usual against B3a-top5 93.06."
+    },
+    {
+      "rank": 5,
+      "kind": "seed_repeat",
+      "lever": "seed repeat of the reference B3a",
+      "change": {
+        "set": {
+          "--seed": [
+            "1235"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "The seed band of the consistency recipe. B3a's 93.06 is the wave's only above-band result, on one seed. B3b and B3c both land ~0.8 below it on half_B, yet B3c ties B3a on half_A (93.01 vs 93.04 merge) and beats it on the final epoch (93.02 vs 92.61).",
+      "hypothesis": "B3a's half_B merge of 93.06 is representative of its recipe, not a favourable draw. A second seed reproduces it within the B2 near-replicate band (~0.2-0.5 WF1, wave.json lever_notes).",
+      "predicted_signature": "Merge half_B WF1 within +-0.5 of 93.06, with the heldout gain over B2f (> +1.5 F1) and noisy EER near 9.16 reproduced.",
+      "falsifier": "A repeat merge below 92.48 (B2f-top5 91.98 + 0.5) means B3a's gain over B2f is inside seed noise, and the B3b/B3c deltas must be re-read against that band."
+    }
+  ]
+}
