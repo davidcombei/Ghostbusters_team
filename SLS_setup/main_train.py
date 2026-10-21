@@ -183,7 +183,29 @@ def main():
     parser.add_argument("--musan_dir", type=str, default="data/augm/musan",
                         help="root of the (non-speech) MUSAN tree used by --musan")
     parser.add_argument("--use_rawboost", action="store_true", default=False)
-    
+    # --- level augmentation (utils/level_augment.py): random gain + AGC / compressor / limiter
+    #     after the RTC augmenter, before RawBoost. Removes the level shortcut found in E0.5. ---
+    parser.add_argument("--use_level_aug", action="store_true", default=False)
+    parser.add_argument("--level_p_apply", type=float, default=0.8)
+    parser.add_argument("--level_gain_mode", type=str, default="absolute", choices=["absolute", "relative"],
+                        help="absolute: set the active level to a random target (--level_target_db), "
+                             "removing the level cue; relative: add a random gain (--level_gain_db)")
+    parser.add_argument("--level_target_db", type=float, nargs=2, default=[-38.0, -12.0])
+    parser.add_argument("--level_gain_db", type=float, nargs=2, default=[-10.0, 10.0])
+    parser.add_argument("--level_agc_p", type=float, default=0.30)
+    parser.add_argument("--level_comp_p", type=float, default=0.15)
+    parser.add_argument("--level_limit_p", type=float, default=0.15)
+    parser.add_argument("--level_clip_p", type=float, default=0.3,
+                        help="share of clips still overshooting after the dynamics stage that are "
+                             "hard-clipped (the rest go through the limiter)")
+    # --- loudness normalisation (utils/loudness.py): deterministic BS.1770 integrated-loudness target,
+    #     applied in SpoofAudioDataset._load before every augmentation, on train AND dev. Pass the
+    #     same flags to main_eval.py so inference sees the same levels. ---
+    parser.add_argument("--loudness_norm", action="store_true", default=False,
+                        help="normalise every clip to --loudness_norm_lufs at read time (train, dev, eval)")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0,
+                        help="target integrated loudness in LUFS (EBU R128 speech: -23; streaming: -14)")
+
     args = parser.parse_args()
     args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
 
@@ -230,6 +252,7 @@ def main():
         print(f"RTC augmentation: {train_set.augmenter.describe()}")
     else:
         print("RTC augmentation: off")
+    print(f"Loudness norm: {train_set.loudness.describe() if train_set.loudness is not None else 'off'}")
     print(f"RawBoost: {'algo ' + str(args.algo) if args.use_rawboost else 'off'}")
     print(f"Train trials: {len(train_files)}")
     print(f"Dev trials: {len(dev_files)}")

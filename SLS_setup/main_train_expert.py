@@ -11,6 +11,7 @@ from tqdm import tqdm
 #from model.model import Model
 from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import build_dataset_from_protocol, set_random_seed
+from utils.level_augment import ChainAugmenter
 from utils.rtc_augment_expert import EXPERT_CODECS, EXPERT_STAGES, ExpertAugConfig, ExpertAugmenter
 
 try:
@@ -188,6 +189,29 @@ def main():
                         help="codecs drawn from, uniformly: the RTC apps' Opus profiles and the "
                              "telephony codecs (default: all of them)")
     parser.add_argument("--use_rawboost", action="store_true", default=False)
+    # --- level augmentation (utils/level_augment.py): random gain + AGC / compressor / limiter
+    #     after the expert augmenter, before RawBoost. Removes the level shortcut found in E0.5. ---
+    parser.add_argument("--use_level_aug", action="store_true", default=False)
+    parser.add_argument("--level_p_apply", type=float, default=0.8)
+    parser.add_argument("--level_gain_mode", type=str, default="absolute", choices=["absolute", "relative"],
+                        help="absolute: set the active level to a random target (--level_target_db), "
+                             "removing the level cue; relative: add a random gain (--level_gain_db)")
+    parser.add_argument("--level_target_db", type=float, nargs=2, default=[-38.0, -12.0])
+    parser.add_argument("--level_gain_db", type=float, nargs=2, default=[-10.0, 10.0])
+    parser.add_argument("--level_agc_p", type=float, default=0.30)
+    parser.add_argument("--level_comp_p", type=float, default=0.15)
+    parser.add_argument("--level_limit_p", type=float, default=0.15)
+    parser.add_argument("--level_clip_p", type=float, default=0.3,
+                        help="share of clips still overshooting after the dynamics stage that are "
+                             "hard-clipped (the rest go through the limiter)")
+    # --- loudness normalisation (utils/loudness.py): deterministic BS.1770 integrated-loudness target,
+    #     applied in SpoofAudioDataset._load before every augmentation, on train AND dev. Pass the
+    #     same flags to main_eval.py so inference sees the same levels. ---
+    parser.add_argument("--loudness_norm", action="store_true", default=False,
+                        help="normalise every clip to --loudness_norm_lufs at read time (train, dev, eval)")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0,
+                        help="target integrated loudness in LUFS (EBU R128 speech: -23; streaming: -14)")
+
     args = parser.parse_args()
     args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
     # build_dataset_from_protocol would build the general RTC augmenter from these;
@@ -224,7 +248,9 @@ def main():
         dev_set, dev_files, _ = build_dataset_from_protocol(protocol, data_path, mode="dev", args=args)
         dev_loaders[name] = build_loader(dev_set, args.batch_size, args.num_workers, shuffle=False)
         print(f"Dev set {name}: {len(dev_files)} trials")
-    train_set.augmenter = ExpertAugmenter(ExpertAugConfig(
+    # with RTC off, build_dataset_from_protocol attached only the level augmenter (--use_level_aug)
+    # or None; the expert augmenter runs first, the level augmenter after it
+    train_set.augmenter = ChainAugmenter([ExpertAugmenter(ExpertAugConfig(
         stage=args.expert_noise,
         noise_dirs=args.aug_noise_dirs,
         rir_dirs=args.aug_rir_dirs,
@@ -233,7 +259,7 @@ def main():
         p_codec=args.aug_codec_p,
         seed=args.seed,
         codec_apps=args.aug_codec_apps,
-    ))
+    )), train_set.augmenter])
     train_loader = build_loader(train_set, args.batch_size, args.num_workers, shuffle=True)
 
 
@@ -251,6 +277,7 @@ def main():
     print(f"SSL checkpoint: {model.ssl_model.name}")
     print(f"Layers: {model.ssl_model.n_layers}")
     print(f"Expert augmentation: {train_set.augmenter.describe()}")
+    print(f"Loudness norm: {train_set.loudness.describe() if train_set.loudness is not None else 'off'}")
     print(f"RawBoost: {'algo ' + str(args.algo) if args.use_rawboost else 'off'}")
     print(f"Train trials: {len(train_files)}")
     trainable = [p for p in model.parameters() if p.requires_grad]

@@ -11,6 +11,8 @@ from transformers import AutoFeatureExtractor
 
 from .RawBoost import ISD_additive_noise, LnL_convolutive_noise, SSI_additive_noise, normWav
 from .rtc_augment import RTCAugConfig, RTCAugmenter, make_deepfilternet_suppressor
+from .level_augment import ChainAugmenter, LevelAugConfig, LevelAugmenter
+from .loudness import LoudnessNormalizer
 
 
 LABEL_TO_ID = {
@@ -87,6 +89,38 @@ def pad_audio(audio, max_len=64600, random_start=False):
 
 def build_augmenter(args):
     """
+    The training augmenter: the RTC augmenter (below) and, with --use_level_aug, the level
+    augmenter (utils/level_augment.py) after it -- both before RawBoost. None if neither is on.
+    """
+    rtc = _build_rtc_augmenter(args)
+    if not getattr(args, "use_level_aug", False):
+        return rtc
+    level = LevelAugmenter(LevelAugConfig(
+        p_apply=getattr(args, "level_p_apply", 0.8),
+        gain_mode=getattr(args, "level_gain_mode", "absolute"),
+        target_db=tuple(getattr(args, "level_target_db", (-38.0, -12.0))),
+        gain_db=tuple(getattr(args, "level_gain_db", (-10.0, 10.0))),
+        p_agc=getattr(args, "level_agc_p", 0.30),
+        p_comp=getattr(args, "level_comp_p", 0.15),
+        p_limit=getattr(args, "level_limit_p", 0.15),
+        clip_p=getattr(args, "level_clip_p", 0.3),
+        seed=getattr(args, "seed", None),
+    ))
+    return ChainAugmenter([rtc, level]) if rtc is not None else level
+
+
+def build_loudness(args):
+    """
+    The loudness normaliser (utils/loudness.py) when --loudness_norm is set, else None. Unlike the
+    augmenters it is applied on train, dev and eval alike, in SpoofAudioDataset._load.
+    """
+    if not getattr(args, "loudness_norm", False):
+        return None
+    return LoudnessNormalizer(target_lufs=getattr(args, "loudness_norm_lufs", -23.0))
+
+
+def _build_rtc_augmenter(args):
+    """
     Build an RTCAugmenter from argparse-style args (all optional).
 
     --use_rtc_aug turns on the eval-scenario stages (office, coffee, echo,
@@ -129,7 +163,8 @@ class SpoofAudioDataset(Dataset):
     """
 
     def __init__(self, file_list, base_dir, labels=None, args=None, algo=0, use_rawboost=False,
-                 ssl_name=None, augmenter=None, train=False, pair_map=None, pair_base_dir=None):
+                 ssl_name=None, augmenter=None, train=False, pair_map=None, pair_base_dir=None,
+                 loudness=None):
         self.file_list = file_list
         self.base_dir = Path(base_dir)
         self.labels = labels
@@ -137,6 +172,7 @@ class SpoofAudioDataset(Dataset):
         self.algo = algo
         self.use_rawboost = use_rawboost
         self.augmenter = augmenter
+        self.loudness = loudness            # LoudnessNormalizer or None; runs in _load, train or not
         self.train = train
         self.cut = 64600
         self.pair_map = pair_map
@@ -154,7 +190,10 @@ class SpoofAudioDataset(Dataset):
     # ------------------------------------------------------------------ #
     def _load(self, wav_path):
         audio, sr = librosa.load(str(wav_path), sr=16000)
-        return audio.astype(np.float32), sr
+        audio = audio.astype(np.float32)
+        if self.loudness is not None:       # before any augmentation, also on dev / eval sets
+            audio = self.loudness(audio, sr)
+        return audio, sr
 
     def _augment(self, audio, sr):
         """
@@ -221,6 +260,7 @@ def build_dataset_from_protocol(protocol_path, base_dir, mode, args=None, algo=0
         train=is_train,
         pair_map=pair_map if is_train else None,
         pair_base_dir=pair_base_dir,
+        loudness=build_loudness(args),
     )
     return dataset, file_list, labels
 

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.sls_model import ModelSLS, ssl_path
-from utils.data_utils import SpoofAudioDataset, read_protocol, set_random_seed
+from utils.data_utils import SpoofAudioDataset, build_loudness, read_protocol, set_random_seed
 
 
 MERGE_CHECKPOINTS = [
@@ -92,6 +92,11 @@ def main():
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--cudnn-deterministic-toggle", action="store_false", default=True)
     parser.add_argument("--cudnn-benchmark-toggle", action="store_true", default=False)
+    parser.add_argument("--loudness_norm", action="store_true", default=False,
+                        help="normalise every clip to --loudness_norm_lufs at read time; pass it when the "
+                             "checkpoint was trained with it")
+    parser.add_argument("--loudness_norm_lufs", type=float, default=-23.0,
+                        help="target integrated loudness in LUFS (must match training)")
     args = parser.parse_args()
     args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
 
@@ -99,7 +104,8 @@ def main():
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     file_list, _ = read_protocol(args.protocol_path, require_label=False)
     dataset = SpoofAudioDataset(file_list=file_list, base_dir=args.eval_data_path, labels=None,
-                                ssl_name=args.ssl_name if args.arch == "sls" else None)
+                                ssl_name=args.ssl_name if args.arch == "sls" else None,
+                                loudness=build_loudness(args))
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
 
     if args.arch == "sls":
