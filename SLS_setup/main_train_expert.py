@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 import torch
+from sklearn.metrics import f1_score
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -10,8 +11,7 @@ from tqdm import tqdm
 #from model.model import Model
 from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import build_dataset_from_protocol, set_random_seed
-from utils.rtc_augment import CODEC_PROFILES
-from utils.rtc_augment_expert import EXPERT_STAGES, ExpertAugConfig, ExpertAugmenter
+from utils.rtc_augment_expert import EXPERT_CODECS, EXPERT_STAGES, ExpertAugConfig, ExpertAugmenter
 
 try:
     from tensorboardX import SummaryWriter
@@ -57,10 +57,11 @@ def train_epoch(data_loader, model, optimizer, device, criterion, out_device=Non
 
 
 def evaluate_dev(data_loader, model, device, criterion, out_device=None):
+    """Returns (loss, macro-F1 in %) at the argmax decision, i.e. a 0.5 threshold."""
     model.eval()
     running_loss = 0.0
-    correct = 0
     num_total = 0
+    labels, preds = [], []
     out_device = out_device or device
 
     with torch.no_grad():
@@ -73,20 +74,32 @@ def evaluate_dev(data_loader, model, device, criterion, out_device=None):
             batch_loss = criterion(batch_out, batch_y)
 
             running_loss += batch_loss.item() * batch_size
-            correct += (torch.argmax(batch_out, dim=1) == batch_y).sum().item()
             num_total += batch_size
+            labels.append(batch_y.cpu())
+            preds.append(torch.argmax(batch_out, dim=1).cpu())
 
-    return running_loss / num_total, 100.0 * correct / num_total
+    macro_f1 = f1_score(torch.cat(labels).numpy(), torch.cat(preds).numpy(),
+                        average="macro", labels=[0, 1], zero_division=0)
+    return running_loss / num_total, 100.0 * macro_f1
 
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train an XLSR-SLS spoof detector expert on one RTC noise condition")
     parser.add_argument("--train_data_path", type=str, required=True)
-    parser.add_argument("--dev_data_path", type=str, required=True)
+    parser.add_argument("--dev_data_path", type=str, nargs="+", required=True,
+                        help="one base dir per --dev_protocol, same order")
     parser.add_argument("--train_protocol", type=str, required=True)
-    parser.add_argument("--dev_protocol", type=str, required=True)
-    parser.add_argument("--track", type=str, default="xlsr_aasist")
+    parser.add_argument("--dev_protocol", type=str, nargs="+", required=True,
+                        help="one or more dev sets; the FIRST is the clean set and the rest are "
+                             "noisy, e.g. dev_label_excl_halfB.txt (clean) + the sim matched_v1 / "
+                             "heldout_v1 protocol_mini.txt (noisy, OOD). Each is scored on its own; "
+                             "selection and early stop use the weighted macro-F1 (see --wf1_lambda)")
+    parser.add_argument("--wf1_lambda", type=float, default=0.3,
+                        help="dev WF1 = lambda * MacroF1(clean) + (1 - lambda) * MacroF1(noisy), "
+                             "MacroF1(noisy) being the mean over the noisy dev sets. With a single "
+                             "dev set, WF1 is that set's macro-F1")
+    parser.add_argument("--track", type=str, default="QWEN_expert")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--devices", type=int, nargs="+", default=None,
                         help="GPU ids to split the XLS-R encoder over, e.g. --devices 4 5. "
@@ -95,7 +108,7 @@ def main():
     parser.add_argument("--n_layers", type=int, default=48,
                         help="number of SSL transformer layers to keep, clamped to the backbone's depth "
                              "(48 for XLS-R 2B, 24 for W2V-BERT 2.0, 18 for Qwen3-ASR-0.6B)")
-    parser.add_argument("--ssl_name", type=str, default="facebook/wav2vec2-xls-r-2b",
+    parser.add_argument("--ssl_name", type=str, default="Qwen/Qwen3-ASR-1.7B",
                         help="hub id or local dir of the SSL front-end, e.g. facebook/wav2vec2-xls-r-2b, "
                              "facebook/w2v-bert-2.0, Qwen/Qwen3-ASR-0.6B or Qwen/Qwen3-ASR-1.7B "
                              "(audio encoder only; needs transformers>=5.14)")
@@ -121,11 +134,11 @@ def main():
                         choices=["none", "cosine", "plateau"],
                         help="optional LR schedule; 'none' keeps the constant LR (default). "
                              "cosine = CosineAnnealingLR over --num_epochs; "
-                             "plateau = ReduceLROnPlateau on dev loss")
+                             "plateau = ReduceLROnPlateau on dev WF1")
     parser.add_argument("--lr_factor", type=float, default=0.5,
                         help="[plateau] LR multiplier on each reduction")
     parser.add_argument("--lr_patience", type=int, default=8,
-                        help="[plateau] stale dev-loss epochs before the LR is reduced; "
+                        help="[plateau] stale dev-WF1 epochs before the LR is reduced; "
                              "keep well below --earlystop_epoch or it never fires")
     parser.add_argument("--lr_min", type=float, default=0.0,
                         help="LR floor: eta_min for cosine, min_lr for plateau")
@@ -154,21 +167,27 @@ def main():
     parser.add_argument("--SNRmax", type=int, default=40)
     # --- expert augmentation (utils/rtc_augment_expert.py) ---
     parser.add_argument("--expert_noise", type=str, required=True, choices=list(EXPERT_STAGES),
-                        help="the one condition this expert is trained on. With probability "
-                             "--aug_p_apply a clip gets this condition and then, always, one RTC "
-                             "codec; otherwise it stays fully clean (no condition, no codec).")
+                        help="the one condition this expert is trained on. A clip gets this "
+                             "condition with probability --aug_p_noise and, independently, one RTC "
+                             "codec with probability --aug_codec_p (after the condition if both).")
     parser.add_argument("--aug_noise_dirs", nargs="*", default=["data/augm/noise"],
                         help="noise roots; the pool used is the <expert_noise> subdirectory "
                              "(office, coffee, rain, footsteps, keyboard)")
     parser.add_argument("--aug_rir_dirs", nargs="*", default=["data/augm/measured_rirs"],
                         help="RIR pool for --expert_noise reverb (.f32 at 48 kHz, or wav)")
-    parser.add_argument("--aug_p_apply", type=float, default=0.5,
-                        help="probability that a training clip gets the condition + codec")
-    parser.add_argument("--aug_codec_apps", nargs="+", default=list(CODEC_PROFILES),
-                        choices=list(CODEC_PROFILES),
-                        help="RTC apps the codec is drawn from (default: all of them)")
+    parser.add_argument("--musan_dir", type=str, default="data/augm/musan",
+                        help="MUSAN root for --expert_noise musan_noise / musan_music "
+                             "(its noise/ or music/ subtree is scanned recursively)")
+    parser.add_argument("--aug_p_noise", "--aug_p_apply", dest="aug_p_noise", type=float, default=0.5,
+                        help="probability that a training clip gets the expert's condition")
+    parser.add_argument("--aug_codec_p", type=float, default=0.5,
+                        help="probability that a training clip goes through an RTC codec, drawn "
+                             "independently of the condition (clean clips can get one too)")
+    parser.add_argument("--aug_codec_apps", nargs="+", default=list(EXPERT_CODECS),
+                        choices=list(EXPERT_CODECS),
+                        help="codecs drawn from, uniformly: the RTC apps' Opus profiles and the "
+                             "telephony codecs (default: all of them)")
     parser.add_argument("--use_rawboost", action="store_true", default=False)
-
     args = parser.parse_args()
     args.ssl_name = ssl_path(args.ssl_name)     # the dataset and the model must agree on the repo id
     # build_dataset_from_protocol would build the general RTC augmenter from these;
@@ -179,7 +198,9 @@ def main():
     set_random_seed(args.seed, args)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
-    for path in [args.train_data_path, args.dev_data_path, args.train_protocol, args.dev_protocol]:
+    if len(args.dev_data_path) != len(args.dev_protocol):
+        raise ValueError("--dev_data_path and --dev_protocol need the same number of entries")
+    for path in [args.train_data_path, args.train_protocol, *args.dev_data_path, *args.dev_protocol]:
         if not os.path.exists(path):
             raise FileNotFoundError(path)
 
@@ -195,19 +216,25 @@ def main():
     train_set, train_files, _ = build_dataset_from_protocol(
         args.train_protocol, args.train_data_path, mode="train", args=args, algo=args.algo
     )
-    dev_set, dev_files, _ = build_dataset_from_protocol(
-        args.dev_protocol, args.dev_data_path, mode="dev", args=args
-    )
+    # dev set name = protocol file stem, prefixed by its parent dir when the stem is generic
+    dev_loaders = {}
+    for data_path, protocol in zip(args.dev_data_path, args.dev_protocol):
+        stem = os.path.splitext(os.path.basename(protocol))[0]
+        name = stem if stem.startswith("dev") else f"{os.path.basename(os.path.dirname(protocol))}_{stem}"
+        dev_set, dev_files, _ = build_dataset_from_protocol(protocol, data_path, mode="dev", args=args)
+        dev_loaders[name] = build_loader(dev_set, args.batch_size, args.num_workers, shuffle=False)
+        print(f"Dev set {name}: {len(dev_files)} trials")
     train_set.augmenter = ExpertAugmenter(ExpertAugConfig(
         stage=args.expert_noise,
         noise_dirs=args.aug_noise_dirs,
         rir_dirs=args.aug_rir_dirs,
-        p_apply=args.aug_p_apply,
+        musan_dir=args.musan_dir,
+        p_noise=args.aug_p_noise,
+        p_codec=args.aug_codec_p,
         seed=args.seed,
         codec_apps=args.aug_codec_apps,
     ))
     train_loader = build_loader(train_set, args.batch_size, args.num_workers, shuffle=True)
-    dev_loader = build_loader(dev_set, args.batch_size, args.num_workers, shuffle=False)
 
 
     model = ModelSLS(args, device)
@@ -226,7 +253,6 @@ def main():
     print(f"Expert augmentation: {train_set.augmenter.describe()}")
     print(f"RawBoost: {'algo ' + str(args.algo) if args.use_rawboost else 'off'}")
     print(f"Train trials: {len(train_files)}")
-    print(f"Dev trials: {len(dev_files)}")
     trainable = [p for p in model.parameters() if p.requires_grad]
     print(f"Parameters: {sum(p.numel() for p in model.parameters())}")
     print(f"Trainable parameters: {sum(p.numel() for p in trainable)} (freeze_ssl={args.freeze_ssl})")
@@ -241,13 +267,13 @@ def main():
             optimizer, T_max=args.num_epochs, eta_min=args.lr_min)
     elif args.lr_scheduler == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=args.lr_factor,
+            optimizer, mode="max", factor=args.lr_factor,
             patience=args.lr_patience, min_lr=args.lr_min)
     print(f"LR: {args.lr} schedule={args.lr_scheduler}")
 
     writer = SummaryWriter(log_dir=log_dir) if SummaryWriter else None
 
-    best_dev_loss = float("inf")
+    best_dev_wf1 = float("-inf")
     #best_model_path = os.path.join(ckpt_dir, "best_model.pth")
     best_epoch = None
     no_improve_count = 0
@@ -255,16 +281,26 @@ def main():
     for epoch in range(1, args.num_epochs + 1):
         train_loss, train_acc = train_epoch(train_loader, model, optimizer, in_device,
                                             criterion, out_device)
-        dev_loss, dev_acc = evaluate_dev(dev_loader, model, in_device, criterion, out_device)
+        dev_results = {name: evaluate_dev(loader, model, in_device, criterion, out_device)
+                       for name, loader in dev_loaders.items()}
+        dev_loss = sum(loss for loss, _ in dev_results.values()) / len(dev_results)
+        f1s = [f1 for _, f1 in dev_results.values()]
+        f1_clean = f1s[0]
+        f1_noisy = sum(f1s[1:]) / len(f1s[1:]) if len(f1s) > 1 else f1_clean
+        dev_wf1 = args.wf1_lambda * f1_clean + (1 - args.wf1_lambda) * f1_noisy
 
         # read before stepping the scheduler: this is the LR the epoch trained with
         current_lr = optimizer.param_groups[0]["lr"]
         message = (
             f"Epoch {epoch}/{args.num_epochs} "
             f"TrainLoss={train_loss:.6f} TrainAcc={train_acc:.2f}% "
-            f"DevLoss={dev_loss:.6f} DevAcc={dev_acc:.2f}% "
+            f"DevLoss={dev_loss:.6f} DevWF1={dev_wf1:.2f}% "
+            f"(clean={f1_clean:.2f}% noisy={f1_noisy:.2f}%) "
             f"LR={current_lr:.3e}"
         )
+        if len(dev_results) > 1:
+            message += " | " + " ".join(f"{name}: loss={loss:.4f} macroF1={f1:.2f}%"
+                                        for name, (loss, f1) in dev_results.items())
         print(message)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now().replace(microsecond=0)}] {message}\n")
@@ -273,13 +309,20 @@ def main():
             writer.add_scalar("Loss/train", train_loss, epoch)
             writer.add_scalar("Acc/train", train_acc, epoch)
             writer.add_scalar("Loss/dev", dev_loss, epoch)
-            writer.add_scalar("Acc/dev", dev_acc, epoch)
+            writer.add_scalar("WF1/dev", dev_wf1, epoch)
+            writer.add_scalar("MacroF1/dev_clean", f1_clean, epoch)
+            writer.add_scalar("MacroF1/dev_noisy", f1_noisy, epoch)
             writer.add_scalar("LR", current_lr, epoch)
+            for name, (loss, f1) in dev_results.items():
+                writer.add_scalar(f"Loss/dev_{name}", loss, epoch)
+                writer.add_scalar(f"MacroF1/dev_{name}", f1, epoch)
 
         
 
-        if dev_loss < best_dev_loss:
-            best_dev_loss = dev_loss
+        epoch_path = os.path.join(
+            ckpt_dir, f"epoch_{epoch}_dev_wf1_{dev_wf1:.4f}_dev_loss_{dev_loss:.6f}.pth")
+        if dev_wf1 > best_dev_wf1:
+            best_dev_wf1 = dev_wf1
             best_epoch = epoch
             no_improve_count = 0
             # best_model.pth is a relative symlink to the epoch file, so the whole
@@ -289,28 +332,26 @@ def main():
            # os.symlink(os.path.basename(epoch_path), best_model_path)
             #print(f"Saved best model: {best_model_path} -> {os.path.basename(epoch_path)} "
                   #f"(epoch {epoch}, dev_loss={dev_loss:.6f})")
-            epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
-            torch.save(model.state_dict(), epoch_path)
         else:
             no_improve_count += 1
-            epoch_path = os.path.join(ckpt_dir, f"epoch_{epoch}_dev_loss_{dev_loss:.6f}.pth")
-            torch.save(model.state_dict(), epoch_path)
+        torch.save(model.state_dict(), epoch_path)
 
 
         if scheduler is not None:
             if args.lr_scheduler == "plateau":
-                scheduler.step(dev_loss)
+                scheduler.step(dev_wf1)
             else:
                 scheduler.step()
 
         if no_improve_count >= args.earlystop_epoch:
-            print(f"Early stopping at epoch {epoch}. Best dev_loss={best_dev_loss:.6f}")
+            print(f"Early stopping at epoch {epoch}. Best dev WF1={best_dev_wf1:.2f}% "
+                  f"(epoch {best_epoch})")
             break
 
     if writer:
         writer.close()
     print(f"Experiment saved to: {exp_root}")
-    #print(f"Best model: {best_model_path} (epoch {best_epoch}, dev_loss={best_dev_loss:.6f})")
+    #print(f"Best model: {best_model_path} (epoch {best_epoch}, dev WF1={best_dev_wf1:.2f}%)")
 
 
 if __name__ == "__main__":

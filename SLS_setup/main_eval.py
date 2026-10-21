@@ -8,11 +8,19 @@ from tqdm import tqdm
 from model.sls_model import ModelSLS, ssl_path
 from utils.data_utils import SpoofAudioDataset, read_protocol, set_random_seed
 
-# Checkpoints averaged when --model_merging is set (all must share the same architecture/args).
+
 MERGE_CHECKPOINTS = [
-    # "exp/run1/epoch_10.pth",
-    # "exp/run1/epoch_11.pth",
-    # "exp/run1/epoch_12.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_coffee_epoch100_bs16_20261016090045/ckpt/epoch_17_dev_wf1_91.1937_dev_loss_0.254099.pth",
+    #"Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_echo_epoch100_bs16_20261016090045/ckpt/epoch_5_dev_wf1_83.6399_dev_loss_0.362889.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_footsteps_epoch100_bs16_20261016090045/ckpt/epoch_19_dev_wf1_89.9031_dev_loss_0.254751.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_keyboard_epoch100_bs16_20261016090046/ckpt/epoch_39_dev_wf1_90.4678_dev_loss_0.266744.pth",
+    #"Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_musan_music_epoch100_bs16_20261019085134/ckpt/epoch_15_dev_wf1_91.1756_dev_loss_0.179671.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_musan_noise_epoch100_bs16_20261016090045/ckpt/epoch_7_dev_wf1_91.6326_dev_loss_0.277483.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_office_epoch100_bs16_20261016090045/ckpt/epoch_20_dev_wf1_91.3714_dev_loss_0.267654.pth",
+    "Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_rain_epoch100_bs16_20261016090046/ckpt/epoch_38_dev_wf1_90.6348_dev_loss_0.287161.pth",
+    #"Ghostbusters_team/SLS_setup/exp/QWEN17_pn05_pc05_telcodecs_wf1_expert_reverb_epoch100_bs16_20261016090046/ckpt/epoch_25_dev_wf1_84.4183_dev_loss_0.408108.pth",
+    "Ghostbusters_team/SLS_setup/exp/best_full/merged.pth",
+
 ]
 
 
@@ -69,7 +77,7 @@ def main():
     parser.add_argument("--n_layers", type=int, default=48,
                         help="[sls] SSL transformer layers, must match the checkpoint "
                              "(clamped to the backbone's depth)")
-    parser.add_argument("--ssl_name", type=str, default="facebook/wav2vec2-xls-r-2b",
+    parser.add_argument("--ssl_name", type=str, default="Qwen/Qwen3-ASR-1.7B",
                         help="[sls] hub id or local dir of the SSL front-end, must match the checkpoint: "
                              "facebook/wav2vec2-xls-r-2b, facebook/w2v-bert-2.0, Qwen/Qwen3-ASR-0.6B or "
                              "Qwen/Qwen3-ASR-1.7B (audio encoder only; needs transformers>=5.14)")
@@ -95,7 +103,7 @@ def main():
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
 
     if args.arch == "sls":
-        model = ModelSLS(args, device)          # places itself (one GPU or --devices split)
+        model = ModelSLS(args, device)          
         device = model.input_device
     else:
         from model.model import Model           # only needed for --arch aasist
