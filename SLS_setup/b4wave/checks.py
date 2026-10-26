@@ -9,7 +9,7 @@ Self-checks of the b4wave package (rdloop/B4). Run from SLS_setup/:
     python -m b4wave.checks overfit --lever <id> levers with params_added (none in B4: SKIP, exit 0)
 
     single CPU groups: module | flags | augmenter | reserve_names | imports | trainer | data |
-                       apm | apm_balance | dtx | dtx_balance | codec_draw_order | opus_plc |
+                       apm | apm_balance | dtx | dtx_balance | codec_draw_order | opus_plc | tel |
                        lever_failures | timing | dsp_slices
     as in b3wave:      model --ckpt <path> [GPU] | optim [GPU model build]
     all                = cpu
@@ -67,7 +67,7 @@ BASE_CKPT = str(SLS_DIR / "exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_ep
 
 # rdloop/B4/plan_agreed.json: approved levers (chain order), their flags with the plan defaults (as
 # argparse stores them), the wave arm's setting, the packages each may import, params_added
-APPROVED = ("apm_ns", "dtx_gate", "opus_plc")
+APPROVED = ("apm_ns", "dtx_gate", "opus_plc", "tel_codec")      # tel_codec: B4e (telephony codecs), added after the cycle
 PLAN_FLAGS = {
     "--aug_apm_p": ("apm_ns", 0.0),
     "--aug_apm_ns_levels": ("apm_ns", [6, 12, 18, 21]),
@@ -76,11 +76,15 @@ PLAN_FLAGS = {
     "--aug_opus_plc_p": ("opus_plc", 0.0),
     "--aug_opus_loss": ("opus_plc", [0.01, 0.20]),
     "--aug_opus_burst": ("opus_plc", [1.0, 4.0]),
+    "--aug_tel_p": ("tel_codec", 0.0),
+    "--aug_tel_codecs": ("tel_codec", ["g723_1", "amr_nb"]),
 }
-PLAN_WAVE_SET = {"apm_ns": {"--aug_apm_p": 0.3}, "dtx_gate": {"--aug_dtx_p": 0.3}, "opus_plc": {"--aug_opus_plc_p": 0.3}}
-PLAN_PACKAGES = {"apm_ns": ("pywebrtc_audio",), "dtx_gate": ("webrtcvad",), "opus_plc": ()}
-PLAN_PARAMS_ADDED = {"apm_ns": False, "dtx_gate": False, "opus_plc": False}
-PLAN_OP_NAMES = {"filters": ("wrtc_ns", "wrtc_dtx", "opus_plc"), "codecs": ("libopus",)}
+PLAN_WAVE_SET = {"apm_ns": {"--aug_apm_p": 0.3}, "dtx_gate": {"--aug_dtx_p": 0.3}, "opus_plc": {"--aug_opus_plc_p": 0.3},
+                 "tel_codec": {"--aug_tel_p": 0.25}}
+PLAN_PACKAGES = {"apm_ns": ("pywebrtc_audio",), "dtx_gate": ("webrtcvad",), "opus_plc": (), "tel_codec": ("av",)}
+PLAN_PARAMS_ADDED = {"apm_ns": False, "dtx_gate": False, "opus_plc": False, "tel_codec": False}
+PLAN_OP_NAMES = {"filters": ("wrtc_ns", "wrtc_dtx", "opus_plc", "tel_codec"),
+                 "codecs": ("libopus", "g723_1", "amr_nb", "libopencore_amrnb")}
 TIMING_LIMIT = 1.3                  # cycle.json limits.max_epoch_time_frac
 TIMING_WARN = {"apm_ns": 1.15, "dtx_gate": 1.05}    # plan 1.2 stop rule / smoke bars: WARN, report to the owner
 
@@ -436,7 +440,7 @@ def check_imports():
     """Levers off: no lever package or lever module is imported and no libopus handle exists (fresh process)."""
     from b4wave.augment import LEVERS
     watch = sorted({m for pk in PLAN_PACKAGES.values() for m in pk}
-                   | {"b4wave.dsp_apm", "b4wave.dsp_dtx", "b4wave.opus_plc"}
+                   | {"b4wave.dsp_apm", "b4wave.dsp_dtx", "b4wave.opus_plc", "b4wave.tel_codec"}
                    | {m for s in LEVERS.values() for m in s.modules})
     code = f"WATCH = {watch!r}\n" + IMPORT_PROBE
     r = subprocess.run([sys.executable, "-c", code], cwd=str(SLS_DIR), capture_output=True, text=True, timeout=600)
@@ -1870,6 +1874,252 @@ def check_opus_plc(n_clips=100):
 
 
 # --------------------------------------------------------------------------- #
+# tel_codec (B4e): telephony codec round trip instead of the Opus app profile on a share of the codec calls
+TEL_RESERVED = ("g711_ulaw", "g711_alaw", "g722", "g726")      # sim_unseen_v1 (G.711) / sim_heldout_v1 (G.722, G.726)
+
+
+@contextlib.contextmanager
+def stub_tel_roundtrip():
+    """tel_codec.roundtrip replaced by: the bitrate draw from the tel stream (as the real one makes it) and the input
+    passed through; the selftest stubbed (no PyAV). Records the codec names in call order."""
+    from b4wave import tel_codec
+    saved = (tel_codec.roundtrip, tel_codec.selftest, tel_codec.summary)
+    calls = []
+
+    def stub(audio, rng, name, sr=16000):
+        brs = tel_codec.TELEPHONY_CODECS[name][2]
+        calls.append(name)
+        return np.asarray(audio, np.float32).copy(), brs[int(rng.integers(len(brs)))]
+
+    tel_codec.roundtrip = stub
+    tel_codec.selftest = lambda names=tel_codec.ALLOWED: {}
+    tel_codec.summary = lambda vals: "stub"
+    try:
+        yield calls
+    finally:
+        tel_codec.roundtrip, tel_codec.selftest, tel_codec.summary = saved
+
+
+@contextlib.contextmanager
+def recorded_ffmpeg():
+    """utils.rtc_augment._ffmpeg recorded, not run (8 zero samples back): the codec draws without the codec cost."""
+    from utils import rtc_augment as ra
+    saved = ra._ffmpeg
+    log = []
+
+    def fake(args, stdin):
+        log.append(list(args))
+        return np.zeros(8, np.float32).tobytes()
+
+    ra._ffmpeg = fake
+    try:
+        yield log
+    finally:
+        ra._ffmpeg = saved
+
+
+def _tel_expected_names(n_calls, p, names, seed=1234):
+    """The codecs the tel stream default_rng([seed, pid, 0xB4E]) picks for n codec calls: random() < p, then the name
+    integers(len(names)) and the bitrate integers(len(bitrates)) (the stub round trip draws it like the real one)."""
+    from b4wave.tel_codec import TELEPHONY_CODECS
+    r = np.random.default_rng([seed, os.getpid(), 0xB4E])
+    out = []
+    for _ in range(n_calls):
+        if r.random() < p:
+            name = names[int(r.integers(len(names)))]
+            r.integers(len(TELEPHONY_CODECS[name][2]))
+            out.append(name)
+    return out
+
+
+def _equiv_tel_codec(n_clips=200, n_codec=10):
+    """
+    tel_codec equivalence against B4a (B2f + apm_p 0.3, codec on): (a) tel_p > 0 but never picked -> every output
+    bit-identical to the B4a augmenter's (real ffmpeg, real WebRTC NS), same counts; (b) tel_p = 1.0 (stub round
+    trip, recorded ffmpeg, identity NS) -> after every clip the parent rng AND rng4 states equal B4a's, the stage:*
+    and wrtc_ns counts equal, every B4a codec call became a tel call, and the codecs follow the tel stream.
+    """
+    from b4wave.augment import RTCAugmenterB4, TEL_CODECS, build_rtc_augmenter_b4
+    ok = True
+    a_ref = base_args(no_codec_aug=False, aug_apm_p=0.3)
+    a_tel = base_args(no_codec_aug=False, aug_apm_p=0.3, aug_tel_p=1e-12)
+    with stub_tel_roundtrip() as calls:
+        with quiet():
+            ref = build_rtc_augmenter_b4(a_ref)
+            aug = build_rtc_augmenter_b4(a_tel)
+        clips = _synthetic_clips(n_codec, np.random.default_rng(71))
+        same = sum(int(np.array_equal(ref(c.copy(), 16000), aug(c.copy(), 16000))) for c in clips)
+    cond = (type(aug) is RTCAugmenterB4 and aug.codec_lever == "tel_codec" and same == n_codec
+            and aug.stage_counts == ref.stage_counts and not calls)
+    ok &= report("tel_never_picked_bit_identical_to_b4a", cond,
+                 f"{same}/{n_codec} identical; counts equal {aug.stage_counts == ref.stage_counts}; tel calls {len(calls)}",
+                 [f"tel_p=1e-12 on B4a's flags, real ffmpeg + NS: {same}/{n_codec} clips identical to B4a; counts "
+                  f"{dict(sorted(aug.stage_counts.items()))}"])
+
+    a_tel = base_args(no_codec_aug=False, aug_apm_p=0.3, aug_tel_p=1.0)
+    with recorded_ffmpeg(), identity_ns(), stub_tel_roundtrip() as calls:
+        with quiet():
+            ref = build_rtc_augmenter_b4(a_ref)
+            aug = build_rtc_augmenter_b4(a_tel)
+        bad = 0
+        for c in _synthetic_clips(n_clips, np.random.default_rng(73)):
+            ref(c.copy(), 16000)
+            aug(c.copy(), 16000)
+            bad += int(ref._get_rng().bit_generator.state != aug._get_rng().bit_generator.state
+                       or ref._get_rng4().bit_generator.state != aug._get_rng4().bit_generator.state)
+    ref_codec = sum(v for k, v in ref.stage_counts.items() if k.startswith("codec:"))
+    tel = {c: aug.stage_counts.get(f"codec:{c}", 0) for c in TEL_CODECS}
+    opus_left = {k: v for k, v in aug.stage_counts.items() if k.startswith("codec:") and k[6:] not in TEL_CODECS}
+    rest = lambda counts: {k: v for k, v in counts.items() if not k.startswith("codec:")}
+    expect = _tel_expected_names(ref_codec, 1.0, TEL_CODECS)
+    cond = (bad == 0 and rest(aug.stage_counts) == rest(ref.stage_counts) and sum(tel.values()) == ref_codec > 0
+            and not opus_left and calls == expect and min(tel.values()) > 0)
+    ok &= report("tel_parent_and_rng4_streams_untouched", cond,
+                 f"state mismatches {bad}; other counts equal {rest(aug.stage_counts) == rest(ref.stage_counts)}; "
+                 f"tel {tel} vs B4a codec calls {ref_codec}; opus left {opus_left}; names follow the tel stream {calls == expect}",
+                 [f"tel_p=1.0 (stub round trip): parent rng and rng4 states equal B4a's after each of {n_clips} clips; "
+                  f"stage / wrtc_ns counts {dict(sorted(rest(aug.stage_counts).items()))} == B4a; {ref_codec} codec calls -> "
+                  f"{tel}; codecs = default_rng([1234, pid, 0xB4E]) draws"])
+    return ok
+
+
+def check_tel(n_real=20, n_share=400, n_fail=6):
+    """
+    tel_codec (B4e): the selftest's named asserts with their values; the reserve refuses G.711 / G.722 / G.726; the
+    stage / profile / exclusivity validation; the real PyAV path on training clips (shape, counts, CPU per call vs
+    the ffmpeg Opus path); the picked share at the wave p; a backend failure printed once per process with the
+    ffmpeg fallback on the parent's draws.
+    """
+    from b4wave import opus_plc, tel_codec
+    from b4wave.augment import TEL_CODECS, build_rtc_augmenter_b4
+    from b4wave.train import build_parser, validate_b4_args
+    try:
+        import av
+    except ImportError as exc:
+        skip("tel", f"PyAV missing ({exc}): pip install av==15.1.0")
+        return True
+    ok = True
+    try:
+        vals = tel_codec.selftest(TEL_CODECS)
+        ok &= report("tel_selftest", True, values=[tel_codec.summary(vals)])
+    except AssertionError as exc:
+        ok &= report("tel_selftest", False, str(exc))
+
+    for name in TEL_RESERVED:
+        a = base_args(no_codec_aug=False, aug_tel_p=0.25, aug_tel_codecs=[name])
+        try:
+            with quiet():
+                build_rtc_augmenter_b4(a)
+            ok &= report(f"tel_reserved_refused({name})", False, "no error")
+        except ValueError as exc:
+            ok &= report(f"tel_reserved_refused({name})", "reserved" in str(exc), str(exc), [str(exc)])
+
+    for label, over, needle in (("no_codec_stage", {"no_codec_aug": True}, "needs the codec stage"),
+                                ("random_profiles", {"aug_codec_profiles": "random"}, "needs --aug_codec_profiles fixed"),
+                                ("with_opus_plc", {"aug_opus_plc_p": 0.3}, "at most one codec-slot lever")):
+        a = base_args(**{"no_codec_aug": False, "aug_tel_p": 0.25, **over})
+        try:
+            with quiet():
+                build_rtc_augmenter_b4(a)
+            ok &= report(f"tel_refused({label})", False, "no error")
+        except ValueError as exc:
+            ok &= report(f"tel_refused({label})", needle in str(exc), str(exc))
+    parser = build_parser()
+    for label, extra, want_error in (("tel_and_opus_plc", ["--aug_tel_p", "0.25", "--aug_opus_plc_p", "0.3"], True),
+                                     ("tel_wave_setting", ["--aug_tel_p", "0.25", "--aug_apm_p", "0.3"], False)):
+        try:
+            with quiet():
+                validate_b4_args(parser, parser.parse_args(BASE_ARGV + extra))
+            ok &= report(f"tel_validate({label})", not want_error, "no parser.error")
+        except SystemExit:
+            ok &= report(f"tel_validate({label})", want_error, "parser.error")
+
+    # the real PyAV path, p = 1.0, on training clips (after the trainer's loudness norm)
+    a = base_args(no_codec_aug=False, aug_tel_p=1.0)
+    with quiet():
+        aug = build_rtc_augmenter_b4(a)
+    clips = [x for _, x in _training_clips(n_real, seed=3)]
+    shape_ok, changed = True, 0
+    for c in clips:
+        y = aug(c.copy(), 16000)
+        shape_ok &= len(y) == len(c) and bool(np.all(np.isfinite(y)))
+        changed += int(not np.array_equal(y, c))
+    tel = {c: aug.stage_counts.get(f"codec:{c}", 0) for c in TEL_CODECS}
+    n_calls = sum(v for k, v in aug.stage_counts.items() if k.startswith("codec:"))
+    rt = np.random.default_rng(0)
+    t0 = time.process_time()
+    for c in clips:
+        tel_codec.roundtrip(c, rt, TEL_CODECS[0])
+        tel_codec.roundtrip(c, rt, TEL_CODECS[1])
+    t1 = time.process_time()
+    import resource
+    c0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    prms = [opus_plc.draw_codec_params(np.random.default_rng([i, 13])) for i in range(len(clips))]
+    with quiet():
+        for c, pr in zip(clips, prms):
+            opus_plc.ffmpeg_opus(c, pr)
+    t2 = time.process_time()
+    c1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    tel_s = (t1 - t0) / (2 * len(clips))
+    ff_s = ((t2 - t1) + (c1.ru_utime + c1.ru_stime) - (c0.ru_utime + c0.ru_stime)) / len(clips)
+    secs = np.mean([len(c) for c in clips]) / 16000
+    ok &= report("tel_real_roundtrip_on_training_clips", shape_ok and changed == n_calls == n_real == sum(tel.values())
+                 and min(tel.values()) > 0 and aug.stage_counts.get("fail_tel_codec", 0) == 0,
+                 f"shape ok {shape_ok}; changed {changed}; tel {tel}; codec calls {n_calls}; "
+                 f"fail {aug.stage_counts.get('fail_tel_codec', 0)}",
+                 [f"tel_p=1.0, {n_real} training clips (mean {secs:.2f} s): {tel}, all finite at input length, "
+                  f"{changed} changed; CPU-s per codec call: telephony {tel_s:.4f} vs ffmpeg Opus {ff_s:.4f}"])
+
+    # the picked share at the wave p (recorded ffmpeg, stub round trip)
+    p = float(PLAN_WAVE_SET["tel_codec"]["--aug_tel_p"])
+    a = base_args(no_codec_aug=False, aug_tel_p=p)
+    with recorded_ffmpeg(), stub_tel_roundtrip() as calls:
+        with quiet():
+            aug = build_rtc_augmenter_b4(a)
+        for c in _synthetic_clips(n_share, np.random.default_rng(79), seconds=0.5):
+            aug(c, 16000)
+    n_calls = sum(v for k, v in aug.stage_counts.items() if k.startswith("codec:"))
+    tel = {c: aug.stage_counts.get(f"codec:{c}", 0) for c in TEL_CODECS}
+    share = sum(tel.values()) / max(n_calls, 1)
+    sd = math.sqrt(p * (1 - p) / max(n_calls, 1))
+    ok &= report("tel_share_at_wave_p", abs(share - p) <= 4 * sd and min(tel.values()) > 0 and len(calls) == sum(tel.values()),
+                 f"share {share:.3f} vs p {p} (4 sd {4 * sd:.3f}); tel {tel}",
+                 [f"tel_p={p:g}: {sum(tel.values())}/{n_calls} codec calls telephony (share {share:.3f}, p +- 4 sd "
+                  f"{p - 4 * sd:.3f}..{p + 4 * sd:.3f}); {tel}"])
+
+    # a backend failure: counted, printed once per process, the clip goes through ffmpeg with the parent's draws
+    def boom(*args, **kwargs):
+        raise RuntimeError("stub backend failure")
+
+    a = base_args(no_codec_aug=False, aug_tel_p=1.0)
+    with quiet():
+        aug = build_rtc_augmenter_b4(a)
+    saved = tel_codec.roundtrip
+    tel_codec.roundtrip = boom
+    try:
+        with recorded_ffmpeg() as log:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for c in _synthetic_clips(n_fail, np.random.default_rng(41), seconds=0.5):
+                    aug(c.copy(), 16000)
+                aug.fail_printed["tel_codec"] = -1              # as in a forked worker: another pid
+                aug(_synthetic_clips(1, np.random.default_rng(43), seconds=0.5)[0], 16000)
+    finally:
+        tel_codec.roundtrip = saved
+    msg = [ln for ln in buf.getvalue().splitlines() if ln.startswith("[b4wave] tel_codec failed (")]
+    n_calls = sum(v for k, v in aug.stage_counts.items() if k.startswith("codec:"))
+    opus = sum(v for k, v in aug.stage_counts.items() if k.startswith("codec:") and k[6:] not in TEL_CODECS)
+    ok &= report("lever_failure_printed_once(tel_codec)", len(msg) == 2 and re.search(r"failed \(", msg[0]) is not None
+                 and msg[0].endswith("ffmpeg Opus with the parent's profile") and "RuntimeError: stub backend failure" in msg[0]
+                 and aug.stage_counts.get("fail_tel_codec", 0) == n_calls == opus > 0 and len(log) == 2 * n_calls,
+                 f"{len(msg)} lines (expect 1 + 1 after a pid change); fail {aug.stage_counts.get('fail_tel_codec', 0)}, "
+                 f"codec calls {n_calls}, opus fallbacks {opus}, ffmpeg runs {len(log)}",
+                 [f"{msg[0] if msg else 'no line'}  (fail_tel_codec = {aug.stage_counts.get('fail_tel_codec', 0)} = "
+                  f"opus fallbacks {opus}; again after a pid change: {len(msg) - 1})"])
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 def _cpu_per_clip(dataset, idx):
     """(self CPU-s, children CPU-s) per item of dataset[idx] (load + augment + featurize)."""
     import resource
@@ -2351,7 +2601,7 @@ def check_dsp_slices():
 
 # --------------------------------------------------------------------------- #
 CPU_GROUPS = ["module", "flags", "augmenter", "reserve_names", "imports", "trainer", "data", "apm", "apm_balance",
-              "dtx", "dtx_balance", "codec_draw_order", "opus_plc", "lever_failures", "timing", "dsp_slices"]
+              "dtx", "dtx_balance", "codec_draw_order", "opus_plc", "tel", "lever_failures", "timing", "dsp_slices"]
 
 
 def main():

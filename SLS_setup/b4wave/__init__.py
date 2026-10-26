@@ -7,7 +7,7 @@ Additive: nothing in SLS_setup/b3wave/, model/, utils/ or main_*.py is changed. 
 import hashlib
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 MODULE_DIR = Path(__file__).resolve().parent
 

@@ -6,7 +6,8 @@ Chain (rdloop/B4/plan_agreed.md section 2.0), fixed order:
     1. the parent's acoustic `_stage` (parent rng)            -- unchanged B2f / B3 draws
     2. `_post_dsp`: wrtc_ns -> wrtc_dtx                        -- B4 levers, rng4 only
     3. the codec: original `codecs_augm` (or b3's random profiles), or a codec-slot B4 lever
-       (opus_plc) that makes the parent's codec draws itself              -- parent rng + rng4
+       (opus_plc | tel_codec) that makes the parent's codec draws itself  -- parent rng + rng4
+                                                                             (tel_codec: its own stream)
 
 Reproduction guarantee
     * every B4 flag at its default -> `build_rtc_augmenter_b4(args)` returns
@@ -43,6 +44,7 @@ from b3wave.augment import RTCAugConfigB3, RTCAugmenterB3, build_rtc_augmenter_b
 from b3wave.heldout_reserve import assert_training_ops
 
 RNG4_TAG = 0xB4                     # third word of the rng4 seed sequence
+RNG_TEL_TAG = 0xB4E                 # third word of the tel_codec stream's seed sequence
 SLOTS = ("post_dsp", "codec")
 
 
@@ -133,6 +135,28 @@ register(LeverSpec(
 ))
 
 
+TEL_CODECS = ("g723_1", "amr_nb")           # = b4wave.tel_codec.ALLOWED (kept here: no lazy import needed)
+TEL_KEYS = tuple(f"codec:{c}" for c in TEL_CODECS) + ("fail_tel_codec",)
+
+
+def _tel_header(a):
+    from b4wave import tel_codec                # lazy: the header line is built only when the lever is on
+    return (f"B4 TEL codec: on p={float(a.aug_tel_p):g} of codec calls codecs={list(a.aug_tel_codecs)} "
+            f"backend={tel_codec.version()} (in-memory WAV round trip)")
+
+
+register(LeverSpec(
+    id="tel_codec", slot="codec", prob_arg="aug_tel_p", prob_field="tel_p",
+    arg_fields=(("aug_tel_codecs", "tel_codecs"),),
+    meta_keys=TEL_KEYS,
+    modules=("av", "b4wave.tel_codec"),
+    filters=("tel_codec",),
+    codecs=TEL_CODECS + ("libopencore_amrnb",),
+    describe=lambda cfg: f"tel_codec p={cfg.tel_p:g} codecs={list(cfg.tel_codecs)}",
+    header=_tel_header,
+))
+
+
 def _prob(obj, name):
     value = getattr(obj, name, 0.0)
     return float(value) if value is not None else 0.0
@@ -168,6 +192,9 @@ class RTCAugConfigB4(RTCAugConfigB3):
     opus_plc_p: float = 0.0
     opus_loss: Tuple[float, float] = (0.01, 0.20)
     opus_burst: Tuple[float, float] = (1.0, 4.0)
+    # tel_codec (B4e): per-codec-call probability of a telephony codec instead of the Opus app profile, the codecs
+    tel_p: float = 0.0
+    tel_codecs: Tuple[str, ...] = TEL_CODECS
 
 
 def b4_config_from_args(args):
@@ -225,6 +252,8 @@ class RTCAugmenterB4(RTCAugmenterB3):
         self.codec_lever = codec_levers[0] if codec_levers else None
         self.rng4 = None
         self.rng4_pid = None
+        self.rng_tel = None
+        self.rng_tel_pid = None
         self.fail_printed = {}                      # op -> pid of the last process that printed its failure
         super().__init__(cfg)
         assert_training_ops(
@@ -252,6 +281,15 @@ class RTCAugmenterB4(RTCAugmenterB3):
             self.rng4 = np.random.default_rng([base, os.getpid(), RNG4_TAG])
             self.rng4_pid = os.getpid()
         return self.rng4
+
+    def _get_rng_tel(self):
+        """The tel_codec stream: default_rng([seed, pid, 0xB4E]), like rng4, so the rng4 draws (apm_ns) stay those of
+        the run without the lever."""
+        if self.rng_tel is None or self.rng_tel_pid != os.getpid():
+            base = random.randrange(2 ** 31) if self.cfg.seed is None else int(self.cfg.seed) % (2 ** 63)
+            self.rng_tel = np.random.default_rng([base, os.getpid(), RNG_TEL_TAG])
+            self.rng_tel_pid = os.getpid()
+        return self.rng_tel
 
     def _lever_failed(self, key, op, exc, action="passing through"):
         """Count a worker-side lever failure (`key`) and print the first one per process and op:
@@ -357,6 +395,46 @@ class RTCAugmenterB4(RTCAugmenterB3):
         self._count("opus_plc")
         self._count(self._opus.loss_bin(loss))
         return processed, params["app"]
+
+    # ------------------------------------------------------------------ #
+    # lever tel_codec (B4e): telephony codec round trip (PyAV, in memory) instead of the Opus app profile
+    def _init_tel_codec(self):
+        """Codec-stage / name checks, the reserve on the names AND their encoders (G.711 / G.722 / G.726 raise here),
+        lazy import of tel_codec (+ PyAV) and the start-up selftest (named asserts)."""
+        cfg = self.cfg
+        if not cfg.with_codecs:
+            raise ValueError("tel_codec needs the codec stage (--use_rtc_aug without --no_codec_aug)")
+        if cfg.codec_profiles != "fixed":
+            raise ValueError(f"tel_codec needs --aug_codec_profiles fixed (the parent's codecs_augm draws), "
+                             f"got {cfg.codec_profiles!r}")
+        from b4wave import opus_plc, tel_codec     # opus_plc for the parent's codec draws only: libopus is not loaded
+        names = tuple(cfg.tel_codecs)
+        unknown = [n for n in names if n not in tel_codec.TELEPHONY_CODECS]
+        if not names or unknown:
+            raise ValueError(f"tel_codecs must be a non-empty subset of {list(tel_codec.TELEPHONY_CODECS)}, got {list(names)}")
+        assert_training_ops(codecs=list(names) + [tel_codec.encoder(n) for n in names])
+        cfg.tel_codecs = names
+        self._opus, self._tel = opus_plc, tel_codec
+        vals = tel_codec.selftest(names)        # AssertionError("tel selftest [<name>] ...") stops the run
+        print(f"B4 TEL codec selftest: PASS {tel_codec.summary(vals)}", flush=True)
+
+    def _lever_tel_codec(self, out, rng, sr):
+        """Codec slot. The parent's codec draws are always made (draw_codec_params(rng), codecs_augm's order), so the
+        parent rng stays in step with the run without the lever. Picked (tel stream random() < p): a codec, uniform
+        over tel_codecs, and its bitrate from the tel stream, then the PyAV round trip; on an exception the clip goes
+        through ffmpeg with the parent's draws (fail_tel_codec). Not picked: ffmpeg_opus on the parent's draws,
+        bit-identical to codecs_augm."""
+        cfg = self.cfg
+        params = self._opus.draw_codec_params(rng, cfg.codec_apps)
+        rt = self._get_rng_tel()
+        if rt.random() < cfg.tel_p:
+            name = cfg.tel_codecs[int(rt.integers(len(cfg.tel_codecs)))]
+            try:
+                processed, _ = self._tel.roundtrip(out, rt, name, sr)
+                return processed, name
+            except Exception as exc:            # ffmpeg with the parent's draws, counted; first one printed
+                self._lever_failed("fail_tel_codec", "tel_codec", exc, "ffmpeg Opus with the parent's profile")
+        return self._opus.ffmpeg_opus(out, params, sr)
 
     def _codec(self, out, rng, sr):
         """The codec call of the parent's __call__ (same draws), or the codec-slot lever's."""

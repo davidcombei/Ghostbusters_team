@@ -1,7 +1,8 @@
 # b4wave: the B4 research-cycle package (rdloop/B4)
 
 Additive package for rdloop cycle B4 (focus: augmentation; plan `rdloop/B4/plan_agreed.md`, approved levers
-`apm_ns`, `dtx_gate`, `opus_plc`). **Nothing in `SLS_setup/b3wave/`, `main_*.py`, `utils/`, `model/` or the
+`apm_ns`, `dtx_gate`, `opus_plc`; added after the cycle: `tel_codec` for run B4e, telephony codecs from
+`origin/feature/model-updates`). **Nothing in `SLS_setup/b3wave/`, `main_*.py`, `utils/`, `model/` or the
 existing `scripts/*` is changed**; old runs stay reproducible from their own entry points. No lever changes the
 model: checkpoints are plain `ModelSLS` state_dicts, scored with the `sls_local17` profile and
 `--loudness_norm --loudness_norm_lufs -23` as for B2f (no `b4_local_eval.py` / eval profile needed).
@@ -46,10 +47,13 @@ What differs from a b3wave run with the levers off (bookkeeping only): two heade
 | `--aug_opus_plc_p P` | 0.0 | probability (rng4) that a codec call takes the in-process libopus path with Gilbert-Elliott loss + decoder PLC (48 kHz decode + `resample_poly`) instead of ffmpeg, with the parent's app / bitrate / cutoff / frame draws | `opus_plc.py`, `augment.py` | `checks opus_plc`, `codec_draw_order`, `augmenter`, `timing` | implemented (opus_plc) |
 | `--aug_opus_loss LO HI` | 0.01 0.20 | per-clip target packet-loss range, 0 ≤ lo ≤ hi < 0.5; `0 0` = in-process codec without loss (attribution control); read only when `--aug_opus_plc_p > 0` | `opus_plc.py` | `checks opus_plc` | implemented (opus_plc) |
 | `--aug_opus_burst LO HI` | 1.0 4.0 | mean loss-burst length range in packets, 1 ≤ lo ≤ hi; read only when `--aug_opus_plc_p > 0` | `opus_plc.py` | `checks opus_plc` | implemented (opus_plc) |
+| `--aug_tel_p P` | 0.0 | probability (own stream `default_rng([seed, pid, 0xB4E])`) that a codec call goes through a telephony codec (PyAV in-memory round trip) instead of the Opus app profile; the parent's Opus draws are made either way; exclusive with `--aug_opus_plc_p` | `tel_codec.py`, `augment.py` | `checks tel`, `augmenter`, `timing` | implemented (tel_codec, B4e) |
+| `--aug_tel_codecs CODEC ...` | g723_1 amr_nb | codecs drawn uniformly per picked call, bitrate drawn per call; `g711_ulaw` / `g711_alaw` / `g722` / `g726` are accepted by argparse but refused at start-up by the reserve; read only when `--aug_tel_p > 0` | `tel_codec.py` | `checks tel` | implemented (tel_codec, B4e) |
 
 Wave arms (plan): `--aug_apm_p 0.3`, `--aug_dtx_p 0.3`, `--aug_opus_plc_p 0.3` (one flag off B2f each).
+B4e (after the wave): B4a's flags + `--aug_tel_p 0.25 --aug_tel_codecs g723_1 amr_nb` (`scripts/run_B4e.sh`).
 Dependencies (owner-installed at the gate, never by the module): `pywebrtc_audio` (apm_ns), `webrtcvad`
-(dtx_gate); `opus_plc` uses the system libopus 1.3.1 through `ctypes` (`/usr/lib/x86_64-linux-gnu/libopus.so.0`;
+(dtx_gate), `av==15.1.0` (tel_codec: the 19.x wheels have no AMR-NB encoder); `opus_plc` uses the system libopus 1.3.1 through `ctypes` (`/usr/lib/x86_64-linux-gnu/libopus.so.0`;
 a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd -c conda-forge libopus`).
 
 ## Lever `apm_ns` (plan §2.1): WebRTC NS between the noise stage and the codec
@@ -209,6 +213,44 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd 
   to the decoder path" if the control has ≥ half of the arm's gain). All of this is a report: the lever verdict
   stays capped at "directional".
 
+## Lever `tel_codec` (B4e): telephony codecs instead of the Opus app profile
+
+- **Origin**: David's `utils/rtc_augment_expert.py::telephony_augm` (`origin/feature/model-updates`, 2283dfd), ported
+  to `tel_codec.py` with the same codec table (G.711 µ / A-law, G.722, G.723.1, G.726, AMR-NB) and the same path:
+  resample to the codec rate (s16) → encode into an in-memory WAV with PyAV → decode → resample back. The port raises
+  on a backend error (the original printed and passed the clip through) so the lever can count it.
+- **Allowed codecs**: `g723_1` (6.3 kbps) and `amr_nb` (4.75-12.2 kbps, `libopencore_amrnb`), 8 kHz narrowband.
+  G.722 / G.726 are in `sim_heldout_v1` and G.711 in `sim_unseen_v1`: `_init_tel_codec` passes the selected names
+  **and** their encoder names (`pcm_mulaw`, `pcm_alaw`, `g722`, `g726`) to `assert_training_ops`, so they raise before
+  the first step (`checks tel`: `tel_reserved_refused(*)`).
+- **Where**: codec slot (`RTCAugmenterB4._lever_tel_codec`), so exclusive with `opus_plc` (augmenter and
+  `validate_b4_args`); needs the codec stage and `--aug_codec_profiles fixed`. Per codec call: the parent's codec
+  draws first (`opus_plc.draw_codec_params(rng)`, `codecs_augm`'s order; pure numpy, libopus is not loaded), so the
+  parent rng stays in step with the run without the lever; then the tel stream `default_rng([seed, pid, 0xB4E])`
+  decides (`random() < p`), picks the codec uniformly and its bitrate. Picked: the PyAV round trip, counted as
+  `codec:<name>`. Not picked: `opus_plc.ffmpeg_opus` on the parent's draws (bit-identical to `codecs_augm`). rng4
+  is not touched, so the apm_ns draws are B4a's (`tel_parent_and_rng4_streams_untouched`: parent and rng4 states
+  equal B4a's after each of 200 clips at p = 1.0).
+- **Start-up selftest** (when on; `B4 TEL codec selftest: PASS ...`; an `AssertionError("tel selftest [<name>] ...")`
+  stops the run): `[encoder]` (the encoder is in this PyAV build), `[shape_finite]`, `[length]` (output ≥ input),
+  `[level]` (RMS within ±3 dB), `[narrowband]` (share of the spectral magnitude above 4.2 kHz < 0.05 on a probe
+  clip with 0.25 there) at the lowest and highest bitrate. Measured on PyAV 15.1.0 (libavcodec 61.19.101): G.723.1
+  +0.43 dB, 0.027; AMR-NB 4.75 / 12.2 kbps −0.03 / −0.77 dB, 0.020 / 0.025; output 960-1120 samples longer per 2 s
+  (frame padding + codec delay), trimmed by `finalize`.
+- **Cost** (`checks tel`): 0.062 CPU-s per telephony call vs 0.242 for the ffmpeg Opus path (self + children) on
+  20 training clips (mean 6.4 s): the lever makes the loader cheaper.
+- **Counters** (`meta_keys`): `codec:g723_1`, `codec:amr_nb`, `fail_tel_codec` (an exception in the round trip: the
+  clip goes through ffmpeg with the parent's draws and is counted under its Opus app; the first one per process prints
+  `[b4wave] tel_codec failed (<exc>); ffmpeg Opus with the parent's profile`).
+- **Header** (on only): `B4 TEL codec: on p=0.25 of codec calls codecs=['g723_1', 'amr_nb'] backend=PyAV <v>
+  libavcodec <v> (in-memory WAV round trip)`; `describe()` gains ` | tel_codec p=0.25 codecs=[...]`.
+- **Off** (`--aug_tel_p 0.0`, the default): the B3 object (or B4a's augmenter with only apm_ns on), no `av` /
+  `b4wave.tel_codec` import, `--aug_tel_codecs` unread (`checks augmenter`, `imports`).
+- **Expected readout** (B4e vs B4a): `sim_heldout_v1` bona recall up (narrowband CELP / ADPCM family seen; G.722 /
+  G.726 / GSM implementations unseen); `sim_matched_v1` (Opus apps, now 25 % fewer Opus clips) within −0.5 F1. The
+  heldout set also contains `bandlimit` / `resample8k`, so part of a heldout gain can be narrowband familiarity
+  rather than codec transfer.
+
 ## How a lever plugs in (contract for the lever parts)
 
 1. **Flags**: literal `b4.add_argument("--aug_...", ...)` calls in the "B4 wave" group of `train.py`
@@ -216,7 +258,7 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd 
    defaults exactly; value checks in `validate_b4_args`.
 2. **Config**: the lever's fields on `RTCAugConfigB4` (`augment.py`), defaults = off.
 3. **Registry**: one `register(LeverSpec(id, slot, prob_arg, prob_field, arg_fields, meta_keys, modules, filters,
-   codecs, describe, header))` block in `augment.py`, in chain order (apm_ns, dtx_gate, opus_plc). A lever is on
+   codecs, describe, header))` block in `augment.py`, in chain order (apm_ns, dtx_gate, opus_plc, tel_codec). A lever is on
    when its probability is > 0; `active_levers(args)` drives the builder, the header lines, `config.yaml`
    `b4_levers` and the per-class telemetry.
 4. **Code**: `RTCAugmenterB4._lever_<id>` — slot `post_dsp`: `(out, sr) -> out`, drawing only from
@@ -234,7 +276,7 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd 
 ## Telemetry
 
 - Header (always): `b4wave: <version>`, `b4wave sha256: <12>`; per lever that is on: its header line
-  (`^B4 APM NS: on p=`, `^B4 DTX gate: on p=`, `^B4 Opus PLC: on p=`).
+  (`^B4 APM NS: on p=`, `^B4 DTX gate: on p=`, `^B4 Opus PLC: on p=`, `^B4 TEL codec: on p=`).
 - `config.yaml` (always): `b4wave_version`, `module_sha256` (sha256 over the module's `.py` files sorted by
   name: name, NUL, sha256 hex of the bytes, newline per file; `b4wave.module_sha256()`), `b4_levers`
   (ids of the levers that are on).
@@ -243,15 +285,16 @@ a container restart can wipe it with ffmpeg: optional `conda install -n rtc-sdd 
   and `metrics.jsonl["b4"] = {"levers": [...], "aug_by_class": {"bona": {"n", "counts"}, "spoof": {...}}}`
   (the meta vector summed per label; consistency mode counts both views of a clip).
 - Lever failures (review F1.3; on only): an exception in a lever's backend is counted on every clip (`fail_wrtc_ns`,
-  `fail_wrtc_dtx`, `fail_opus_plc`), and the first one per process and op prints
+  `fail_wrtc_dtx`, `fail_opus_plc`, `fail_tel_codec`), and the first one per process and op prints
   `[b4wave] <op> failed (<ExcType>: <exc>); passing through` (`ffmpeg fallback with the same profile` for
-  `opus_plc`). This is the pattern of the parent's `[rtc_augment] codec ... failed (...)` line, so the wave's early
+  `opus_plc`, `ffmpeg Opus with the parent's profile` for `tel_codec`). This is the pattern of the parent's `[rtc_augment] codec ... failed (...)` line, so the wave's early
   check (`failed \(`) catches a systematic worker-side lever failure at the first failing clip instead of the
   epoch-1 counters (`checks lever_failures`). Levers off: no such line can occur (the B3 object).
 
 ## Reserve (never in training)
 
-The B4 op names `wrtc_ns`, `wrtc_dtx`, `opus_plc` and the codec `libopus` are checked against
+The B4 op names `wrtc_ns`, `wrtc_dtx`, `opus_plc`, `tel_codec` and the codecs `libopus`, `g723_1`, `amr_nb`,
+`libopencore_amrnb` (plus, at tel_codec start-up, the selected telephony names and encoders) are checked against
 `b3wave/heldout_reserve.py` at start-up (`assert_training_ops`); the reserved `vad_gate`, `packet_loss`,
 `afftdn`, `anlmdn`, G.722 / G.726 / GSM, speex, G.711 still raise (`checks reserve_names`). How heldout slices must
 be labelled after B4 (G6, plan §2.0):
@@ -339,6 +382,7 @@ readouts (O3.2): the arm escapes on outcome only with WF1 Δ ≥ +0.5 on merge_t
 | `apm_balance` | apm_ns, plan §2.1 / critic O1.5: 200 training clips (25 per class × src × lang cell) under no stage and a forced training-pool noise stage at U(5, 20) dB (200 + 200 runs) × 4 levels: removed dB over the whole clip and over the input's low-energy 10 ms frames (< p95 − 30 dB), mean / quartiles per class, bona − spoof; `APM_BALANCE WARN` at > 2 dB (noise) / > 4 dB (none); a warning, never a failure |
 | `dtx` | dtx_gate: bad fill / p rejected (argparse, `validate_b4_args`, `check_fill`, augmenter); fill unread at p = 0; header = plan `expect_regex` (exact plan line), describe / meta keys; the selftest's named asserts `shape_finite` / `gated_frac` / `speech_kept` / `zero_exact` / `cng_level` / `cng_colour` / `tone_unchanged`, each with its measured values; the lever with the real gate at p = 0.3 on 200 synthetic clips = the rng4 replay bit for bit (rate, counts, parent counts = B3); fill zero / cng only; DTX → codec chain; apm_ns (identity) → dtx_gate order on one rng4 stream; edge cases (digital silence: zero fill all 0, CNG at −70 dBFS; < 1 frame; 8 kHz; 22.05 kHz → `fail_wrtc_dtx`, pass-through) (SKIP of the backend parts when `webrtcvad` is missing) |
 | `dtx_balance` | dtx_gate, plan §2.2 risk: 200 bona + 200 spoof training clips (50 per class × src × lang cell), loaded clip and after the B3 acoustic stage; realised gated fraction with the drawn parameters and per forced mode (frame 20 ms, hangover 120 ms): mean / quartiles / share gated / bins per class, bona − spoof; `DTX_BALANCE WARN` at > 0.05; a warning, never a failure |
+| `tel` | tel_codec (B4e): the selftest's named asserts with values; G.711 µ / A-law, G.722, G.726 refused by the reserve; codec off / random profiles / with opus_plc refused (augmenter) and tel + opus_plc refused by `validate_b4_args`; the real PyAV path at p = 1.0 on 20 training clips (both codecs, finite, input length, no failure) with CPU-s per call vs ffmpeg Opus; the picked share at p = 0.25 within 4 SD on 400 clips; a raising backend counted on every call, printed once per process with the ffmpeg fallback, again after a pid change. `augmenter` adds `_equiv_tel_codec`: p = 1e-12 on B4a's flags → 10 clips bit-identical to B4a (real ffmpeg + NS); p = 1.0 with a stub round trip → parent rng and rng4 states equal B4a's after each of 200 clips, counts equal, every codec call telephony, codecs = the tel-stream replay |
 | `codec_draw_order` | opus_plc: from 1,000 start states (all apps / a 3-app subset; `_ffmpeg` recorded, not run) `draw_codec_params` leaves the rng where `codecs_augm` leaves it and `ffmpeg_opus` issues the same ffmpeg commands; 14 real ffmpeg calls: same end state, bit-identical output |
 | `opus_plc` | opus_plc: bad loss / burst / p and codec off / random profiles rejected (argparse, `validate_b4_args`, `check_ranges`, augmenter), ranges unread at p = 0, `0 0` accepted; header = plan `expect_regex` (exact line), describe / meta keys; the selftest's named asserts `loads` / `ctl_roundtrip` / `plc_not_zero` / `shape_finite` with values; GE mask statistics (realised loss and mean burst over 400k packets, B = 1 → bursts of 1, stationary start, L = 0 → none lost); the 48 kHz decode equals the no-loss decode up to the first lost packet; the lever at p = 0.3 on 100 clips (rate, bins, unpicked clips bit-identical to B3, rng4 replayed draw by draw, deterministic); every loss bin populated, `0 0` → realised loss 0; fallback (22.05 kHz → `fail_opus_plc`, ffmpeg output = B3); apm_ns → dtx_gate → opus_plc chain; zero-loss attribution (3 training clips × 7 profiles, pooled per profile) and encoder parity with ffmpeg's Ogg packets (SKIP of the libopus parts when libopus is missing) |
 | `lever_failures` | review F1.3: each lever's backend replaced by a raising stub (apm / dtx under the identity stubs; opus_plc with the real init and a pass-through ffmpeg fallback): every failure counted, the first one per process printed once as `[b4wave] <op> failed (RuntimeError: ...); <action>` (matches the early check's `failed \(`), printed again after a pid change |

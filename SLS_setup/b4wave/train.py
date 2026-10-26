@@ -591,7 +591,7 @@ def build_parser():
     # by grepping add_argument in this file (trainer.flag_sources).
     b4 = parser.add_argument_group("B4 wave", "rdloop/B4 augmentation levers (b4wave/README.md); "
                                               "every default reproduces the base run bit for bit")
-    # one block per lever part, in chain order (apm_ns, dtx_gate, opus_plc): b4.add_argument("--aug_...")
+    # one block per lever part, in chain order (apm_ns, dtx_gate, opus_plc, tel_codec): b4.add_argument("--aug_...")
     # -- apm_ns (plan 2.1): WebRTC noise suppression between the noise stage and the codec
     b4.add_argument("--aug_apm_p", type=float, default=0.0,
                     help="Per-clip probability of one WebRTC NS pass (pywebrtc_audio standalone NoiseSuppressor, "
@@ -623,6 +623,16 @@ def build_parser():
     b4.add_argument("--aug_opus_burst", type=float, nargs=2, default=[1.0, 4.0], metavar=("LO", "HI"),
                     help="Range (lo hi) of the mean loss-burst length in packets, 1 <= lo <= hi (a design choice). "
                          "Read only when --aug_opus_plc_p > 0.")
+    # -- tel_codec (B4e): telephony codec round trip (PyAV, in memory) instead of the Opus app profile (codec slot)
+    b4.add_argument("--aug_tel_p", type=float, default=0.0,
+                    help="Probability (separate tel RNG stream) that a codec call goes through a telephony codec "
+                         "(--aug_tel_codecs, PyAV in-memory round trip, 8 kHz) instead of the Opus app profile; the "
+                         "parent's Opus draws are made either way. Needs av==15.1.0. 0 = off = B2f / B4a.")
+    b4.add_argument("--aug_tel_codecs", type=str, nargs="+", default=["g723_1", "amr_nb"],
+                    choices=["g711_ulaw", "g711_alaw", "g722", "g723_1", "g726", "amr_nb"], metavar="CODEC",
+                    help="Telephony codecs, drawn uniformly per picked codec call (bitrate drawn per call). G.711 / "
+                         "G.722 / G.726 are reserved for the local proxy sets (sim_unseen_v1 / sim_heldout_v1) and "
+                         "refused at start-up. Read only when --aug_tel_p > 0.")
     assert b4 is not None
     return parser
 
@@ -644,6 +654,10 @@ def validate_b4_args(parser, args):
             parser.error(f"--aug_opus_loss must satisfy 0 <= lo <= hi < 0.5, got {lo:g} {hi:g}")
         if not 1.0 <= blo <= bhi:
             parser.error(f"--aug_opus_burst must satisfy 1 <= lo <= hi, got {blo:g} {bhi:g}")
+    codec_on = [f"--{spec.prob_arg}" for spec in LEVERS.values()
+                if spec.slot == "codec" and float(getattr(args, spec.prob_arg, 0.0) or 0.0) > 0.0]
+    if len(codec_on) > 1:
+        parser.error(f"at most one codec-slot lever can be on, got {' '.join(codec_on)}")
 
 
 def main():
