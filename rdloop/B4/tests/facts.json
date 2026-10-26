@@ -1,0 +1,450 @@
+{
+  "cycle": "B4",
+  "module": "b4wave",
+  "base": {
+    "label": "B2f",
+    "run_dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623",
+    "from_wave": null
+  },
+  "base_now": "B2f",
+  "base_outdated": false,
+  "approved_levers": [
+    "apm_ns",
+    "dtx_gate",
+    "opus_plc"
+  ],
+  "implemented_levers": [
+    {
+      "id": "apm_ns",
+      "title": "WebRTC noise suppression (standalone NS only, no HPF/AGC) between the noise stage and the codec",
+      "flags": [
+        "--aug_apm_p=0.0",
+        "--aug_apm_ns_levels=6 12 18 21"
+      ],
+      "wave_set": {
+        "--aug_apm_p": [
+          "0.3"
+        ]
+      },
+      "gap_ids": [
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2607.17761",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://arxiv.org/abs/2603.14033",
+        "https://github.com/strands-labs/pywebrtc-audio"
+      ],
+      "smoke": {
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7875 DevLoss 1.4229 LocalWF1 45.52, 1.03 batch/s, peak 9.94 GiB",
+        "peak_gib": 9.94,
+        "rate": 1.03,
+        "time_frac": 1.126,
+        "eta_full_h": 4.66,
+        "train_loss": 0.787505,
+        "dev_loss": 1.422931,
+        "wf1": 45.52,
+        "elapsed_s": 101.8
+      }
+    },
+    {
+      "id": "dtx_gate",
+      "title": "webrtcvad DTX gating with zero or LPC comfort-noise fill",
+      "flags": [
+        "--aug_dtx_p=0.0",
+        "--aug_dtx_fill=mix"
+      ],
+      "wave_set": {
+        "--aug_dtx_p": [
+          "0.3"
+        ]
+      },
+      "gap_ids": [
+        "G3",
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2309.11827",
+        "https://arxiv.org/abs/2309.11827",
+        "https://arxiv.org/abs/2106.12914",
+        "https://arxiv.org/html/2607.17761",
+        "https://github.com/wiseman/py-webrtcvad"
+      ],
+      "smoke": {
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7827 DevLoss 0.9224 LocalWF1 38.13, 1.25 batch/s, peak 9.94 GiB",
+        "peak_gib": 9.94,
+        "rate": 1.25,
+        "time_frac": 0.928,
+        "eta_full_h": 3.84,
+        "train_loss": 0.782733,
+        "dev_loss": 0.922425,
+        "wf1": 38.13,
+        "elapsed_s": 96.6
+      }
+    },
+    {
+      "id": "opus_plc",
+      "title": "In-process libopus round trip with Gilbert-Elliott packet loss and decoder PLC (48 kHz decode + resample, like ffmpeg)",
+      "flags": [
+        "--aug_opus_plc_p=0.0",
+        "--aug_opus_loss=0.01 0.20",
+        "--aug_opus_burst=1.0 4.0"
+      ],
+      "wave_set": {
+        "--aug_opus_plc_p": [
+          "0.3"
+        ]
+      },
+      "gap_ids": [
+        "G1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2504.12423v2",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://github.com/orion-labs/opuslib",
+        "https://github.com/orion-labs/opuslib/blob/master/opuslib/classes.py",
+        "https://arxiv.org/abs/2107.12018"
+      ],
+      "smoke": {
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7822 DevLoss 0.8370 LocalWF1 34.82, 1.27 batch/s, peak 9.94 GiB",
+        "peak_gib": 9.94,
+        "rate": 1.27,
+        "time_frac": 0.913,
+        "eta_full_h": 3.78,
+        "train_loss": 0.782239,
+        "dev_loss": 0.836959,
+        "wf1": 34.82,
+        "elapsed_s": 92.3
+      }
+    }
+  ],
+  "dropped_levers": null,
+  "debate": {
+    "rounds": [
+      {
+        "v": 1,
+        "levers": [
+          "apm_ns",
+          "dtx_gate",
+          "opus_plc"
+        ],
+        "counts": {
+          "blocker": 0,
+          "major": 2,
+          "minor": 7,
+          "resolved": 0
+        },
+        "agreed": false,
+        "critic_verdict": "revise",
+        "ts": "2026-10-17 12:46:45",
+        "stances": {
+          "apm_ns": "modify",
+          "dtx_gate": "modify",
+          "opus_plc": "modify"
+        }
+      },
+      {
+        "v": 2,
+        "levers": [
+          "apm_ns",
+          "dtx_gate",
+          "opus_plc"
+        ],
+        "counts": {
+          "blocker": 0,
+          "major": 1,
+          "minor": 3,
+          "resolved": 9
+        },
+        "agreed": false,
+        "critic_verdict": "revise",
+        "ts": "2026-10-17 13:14:49",
+        "stances": {
+          "apm_ns": "modify",
+          "dtx_gate": "keep",
+          "opus_plc": "modify"
+        }
+      },
+      {
+        "v": 3,
+        "levers": [
+          "apm_ns",
+          "dtx_gate",
+          "opus_plc"
+        ],
+        "counts": {
+          "blocker": 0,
+          "major": 0,
+          "minor": 3,
+          "resolved": 13
+        },
+        "agreed": true,
+        "critic_verdict": "agree",
+        "ts": "2026-10-17 13:41:52",
+        "stances": {
+          "apm_ns": "keep",
+          "dtx_gate": "keep",
+          "opus_plc": "keep"
+        }
+      }
+    ],
+    "outcome": "agreed"
+  },
+  "review_rounds": 2,
+  "fix_rounds": 1,
+  "tests": {
+    "static": [
+      {
+        "name": "manifest",
+        "state": "pass",
+        "note": "138 protected files and 2107 run files unchanged",
+        "elapsed_s": 0.1,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "py_compile",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 1.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "help",
+        "state": "pass",
+        "note": "all lever flags present",
+        "elapsed_s": 30.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "checks_cpu",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 300.5,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "base_checks_all",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 30.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "exploop_test_lib",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 30.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "exploop_test_view",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 30.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      }
+    ],
+    "gpu": [
+      {
+        "name": "R1_old_scores",
+        "state": "pass",
+        "note": "5 sets re-scored from B2f's checkpoint match the stored scores (max |\u0394logit| 0.00e+00)",
+        "elapsed_s": 122.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R2_b3wave_checks_model",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 25.5,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R2_b3wave_checks_optim",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 20.4,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R3_module_gpu_checks",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 35.7,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R4_base_micro",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7691 DevLoss 0.7197 LocalWF1 29.47, 1.87 batch/s, peak 9.94 GiB",
+        "elapsed_s": 81.4,
+        "peak_gib": 9.94,
+        "rate": 1.87,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R4_levers_off_micro",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7691 DevLoss 0.7197 LocalWF1 29.47, 1.81 batch/s, peak 9.94 GiB",
+        "elapsed_s": 81.5,
+        "peak_gib": 9.94,
+        "rate": 1.81,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "S0_levers_off",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7281 DevLoss 1.4868 LocalWF1 45.68, 1.16 batch/s, peak 9.94 GiB",
+        "elapsed_s": 97.0,
+        "peak_gib": 9.94,
+        "rate": 1.16,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "R4_equivalence",
+        "state": "pass",
+        "note": "levers-off b4wave reproduces b3wave within 5% (augmenter off in both): train_loss rel diff 0.0000, dev_loss rel diff 0.0000",
+        "elapsed_s": 0.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "S_apm_ns",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7875 DevLoss 1.4229 LocalWF1 45.52, 1.03 batch/s, peak 9.94 GiB",
+        "elapsed_s": 101.8,
+        "peak_gib": 9.94,
+        "rate": 1.03,
+        "time_frac": 1.126,
+        "eta_full_h": 4.66
+      },
+      {
+        "name": "S_dtx_gate",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7827 DevLoss 0.9224 LocalWF1 38.13, 1.25 batch/s, peak 9.94 GiB",
+        "elapsed_s": 96.6,
+        "peak_gib": 9.94,
+        "rate": 1.25,
+        "time_frac": 0.928,
+        "eta_full_h": 3.84
+      },
+      {
+        "name": "S_opus_plc",
+        "state": "pass",
+        "note": "epoch 1 TrainLoss 0.7822 DevLoss 0.8370 LocalWF1 34.82, 1.27 batch/s, peak 9.94 GiB",
+        "elapsed_s": 92.3,
+        "peak_gib": 9.94,
+        "rate": 1.27,
+        "time_frac": 0.913,
+        "eta_full_h": 3.78
+      },
+      {
+        "name": "E_eval_merge_path",
+        "state": "pass",
+        "note": "merge + eval of the apm_ns smoke checkpoint works (1000 clips scored)",
+        "elapsed_s": 30.4,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      }
+    ],
+    "compat": [
+      {
+        "name": "seed",
+        "state": "pass",
+        "note": "handoff/wave_seed.json: 3 levers; dry-run wave rdloop/B4/handoff/dryrun_wave",
+        "elapsed_s": 0.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "validate_levers",
+        "state": "pass",
+        "note": "every seed lever passes exploop's one-factor validator",
+        "elapsed_s": 0.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "smoke_run_contract",
+        "state": "pass",
+        "note": "5 smoke runs follow the exploop run contract",
+        "elapsed_s": 0.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "exploop_init",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 1.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      },
+      {
+        "name": "exploop_plan",
+        "state": "pass",
+        "note": "rc 0",
+        "elapsed_s": 30.0,
+        "peak_gib": null,
+        "rate": null,
+        "time_frac": null,
+        "eta_full_h": null
+      }
+    ]
+  },
+  "code_sha": "d163f934ac7f230cf70603c1c2eb5c51510441f5f2578c5da9dea974a167c92a",
+  "cost_usd": 84.6684,
+  "base_run_hours": 4.136666666666667,
+  "wave_seed": "rdloop/B4/handoff/wave_seed.json"
+}

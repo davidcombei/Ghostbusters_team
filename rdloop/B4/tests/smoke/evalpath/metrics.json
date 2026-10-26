@@ -1,0 +1,49 @@
+{
+  "model": "merge:/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/tests/smoke/evalpath_merge_list.txt",
+  "checkpoints": [
+    "/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/runs/B4smk_apmns_s1234_epoch1_bs16_20261018112925/ckpt/epoch_1_dev_loss_1.422931.pth",
+    "/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/runs/B4smk_apmns_s1234_epoch1_bs16_20261018112925/ckpt/epoch_1_dev_loss_1.422931.pth"
+  ],
+  "ssl_name": "Qwen/Qwen3-ASR-1.7B-hf",
+  "n_layers": 24,
+  "config_hash": "9809ac7da5",
+  "sets_file": "/root/repos/rtc-sdd/Ghostbusters_team/configs/local_eval_sets.yaml",
+  "loudness_norm": -23.0,
+  "full": {
+    "sets": {
+      "probe_orig": {
+        "n": 1000,
+        "n_spoof": 813,
+        "f1": 0.5004938936781609,
+        "f1_oracle": 0.5217331357071455,
+        "thr_oracle": 0.35356682538986206,
+        "eer": 0.495066795587742,
+        "thr_eer": 0.6291995048522949,
+        "ece": 0.2179518123269081,
+        "recall_spoof": 0.7257072570725708,
+        "recall_bona": 0.2887700534759358,
+        "role": "probe"
+      }
+    },
+    "wf1": {}
+  },
+  "half_B": {
+    "sets": {
+      "probe_orig": {
+        "n": 1000,
+        "n_spoof": 813,
+        "f1": 0.5004938936781609,
+        "f1_oracle": 0.5217331357071455,
+        "thr_oracle": 0.35356682538986206,
+        "eer": 0.495066795587742,
+        "thr_eer": 0.6291995048522949,
+        "ece": 0.2179518123269081,
+        "recall_spoof": 0.7257072570725708,
+        "recall_bona": 0.2887700534759358,
+        "role": "probe"
+      }
+    },
+    "wf1": {}
+  },
+  "breakdowns": {}
+}

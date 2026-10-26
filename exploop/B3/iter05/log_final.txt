@@ -1,0 +1,34 @@
+metrics: SLS_setup/exp/B3e_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_snr0to20_s1234_epoch8_bs8_20261011170031/local_eval/epoch_8/metrics.json
+
+  id                  B3e-snr0to20-ep8
+  date                2026-10-12
+  owner               tmarchitan
+  git_sha             df3dff2+dirty
+  config_hash         5ce2529ada
+  model               SLS_setup/exp/B3e_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_snr0to20_s1234_epoch8_bs8_20261011170031/ckpt/epoch_8_dev_loss_0.198522.pth
+  change_vs_ref       + --aug_snr_db 0 20 (default 5 20; SNR coupled group, --aug_snr_dist stays uniform; everything else identical to B3a, incl. --consistency js --consistency_lambda 0.3 --consistency_pairs both --batch_size 8, --aug_codec_profiles fixed)
+  clean_f1            96.97
+  matched_f1          91.76
+  heldout_f1          89.09
+  echo_f1             93.95
+  wf1@0.5             92.39
+  wf1@oracle          92.70
+  eer_clean           2.43
+  eer_matched         8.82
+  eer_heldout         11.67
+  eer_echo            6.27
+  recall_spoof_noisy  99.29
+  recall_bona_noisy   74.73
+  progress_score      
+  gpu_h               7.73
+  decision            drop
+  notes               exploop wave B3 iteration 5 (final readout); verdict: negative; report: docs/experiments-exploration/b3-experiments/20261012_010655_B3e_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_snr0to20_s1234.md
+  seed                1234
+  half_b_wf1          92.36
+  ci_low              
+  ci_high             
+
+vs B3a-cjs03-ep8:  half_B WF1 -0.58   full WF1 -0.39   clean F1 -0.09   matched -0.04   heldout -1.00   echo -0.45
+Decision rule (next_steps_plan.md): promote only if the paired-bootstrap 95% CI of dWF1 (half_B) excludes 0 and clean F1 drops by <= 0.5; otherwise 'no effect'.
+
+Row 'B3e-snr0to20-ep8' appended in /root/repos/rtc-sdd/Ghostbusters_team/docs/experiment_log.csv

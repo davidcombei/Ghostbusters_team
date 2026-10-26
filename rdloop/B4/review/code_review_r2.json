@@ -1,0 +1,45 @@
+{
+  "round": 2,
+  "report_path": "rdloop/B4/review/code_review_r2.md",
+  "headline": "All three round-1 findings are fixed and the levers-off path is unchanged. F1.1: readout-only dose print and pre-registered dose rule, so an under-dosed null reads inconclusive and does not lead to Drop. F1.2: the apm selftest CPU went from 546.91 s to 0.53 s. F1.3: the first lever failure is printed and the early check catches it. checks cpu passes 126/126, base checks 22/22, the manifest is clean, and I reproduced lever_failures 3/3 and dsp_slices 20/20. One new minor wording finding (F2.1). Approve.",
+  "verdict": "approve",
+  "findings": [
+    {
+      "id": "F2.1",
+      "lever_id": "dtx_gate",
+      "severity": "minor",
+      "category": "other",
+      "file": "scripts/b4_dsp_slices.py",
+      "line": 899,
+      "issue": "A dtx_gate report prints two different falsifier (1) outcome escapes. The generic outcome block (l.899) prints 'falsifier (1) outcome escape (heldout F1 delta >= +0.5 on merge_top5 AND final)', the O3.2 wording written for apm_ns / opus_plc. The new dtx decision lines (l.661, DTX_WF1_ESCAPE) use half-B WF1 delta >= +0.5 on both readouts, from the plan section 2.2 text. An arm with heldout F1 +0.6/+0.6 but WF1 +0.3/+0.3 would read 'escape True' in one block and 'falsifier (1) fires' in the other. Both readings have a source (plan text vs the literal O3.2 note), and the engineer documented the choice (README.md:323). It only matters at an adequate dose.",
+      "fix": "Wording only. For --lever dtx_gate, label the generic escape line '(apm_ns / opus_plc; dtx_gate: see its decision lines)', or print both metrics' escapes in the dtx decision line and keep WF1 as the decision metric. The owner confirms the metric at the post-smoke review."
+    }
+  ],
+  "resolved": [
+    "F1.1",
+    "F1.2",
+    "F1.3"
+  ],
+  "plan_conformance": [
+    {
+      "lever_id": "apm_ns",
+      "ok": true,
+      "note": "Round 2 changes only _lag (sums of elementwise products, dsp_apm.py:145; [aligned] kept, lag 0) and the failure print (augment.py:295). Selftest CPU is 0.53 s; timing factor 1.012. Flags, header and asserts are unchanged."
+    },
+    {
+      "lever_id": "dtx_gate",
+      "ok": true,
+      "note": "Training code: only the failure print changed (augment.py:319); the dose stays as approved, and a dose change is left to the owner. Readout adds the dose block, the dose rule (0.25; unknown is treated like under-dosed), the lever_verdict gate (b4_dsp_slices.py:772) and the plan 2.2 falsifier decision lines. Falsifier (2) uses the plan's noisy/VAD guards and clean F1, and (3) is the shared under-fit rule. Expected dose ratio of the arm as built is 0.03-0.07 (from the dtx_balance bins), so a null arm will read 'inconclusive (under-dosed)'; this is a note for the owner."
+    },
+    {
+      "lever_id": "opus_plc",
+      "ok": true,
+      "note": "Only the failure print before the ffmpeg fallback (augment.py:355). This extends F1.3, justified because a systematic libopus failure would otherwise silently make the arm a B2f replicate."
+    },
+    {
+      "lever_id": "",
+      "ok": true,
+      "note": "_lever_failed counts every failure and prints once per (op, pid). It is reachable only with a lever on (levers off returns the B3 object), and train.py is untouched. The new line falls under the exploop early check's 'failed \\(' pattern only in the smoke log and the early window, as for codec failures. The snapshot equals the working tree, and the manifest check passes."
+    }
+  ]
+}

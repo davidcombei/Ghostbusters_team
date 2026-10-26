@@ -1,0 +1,87 @@
+{
+  "code_sha": "d163f934ac7f230cf70603c1c2eb5c51510441f5f2578c5da9dea974a167c92a",
+  "jobs": [
+    {
+      "name": "seed",
+      "argv": [],
+      "cwd": ".",
+      "check": "seed",
+      "state": "pass",
+      "log": "rdloop/B4/tests/compat/seed.log",
+      "inproc": true,
+      "note": "handoff/wave_seed.json: 3 levers; dry-run wave rdloop/B4/handoff/dryrun_wave",
+      "elapsed_s": 0.0
+    },
+    {
+      "name": "validate_levers",
+      "argv": [],
+      "cwd": ".",
+      "check": "validate",
+      "state": "pass",
+      "log": "rdloop/B4/tests/compat/validate_levers.log",
+      "inproc": true,
+      "note": "every seed lever passes exploop's one-factor validator",
+      "elapsed_s": 0.0
+    },
+    {
+      "name": "smoke_run_contract",
+      "argv": [],
+      "cwd": ".",
+      "check": "run_contract",
+      "state": "pass",
+      "log": "rdloop/B4/tests/compat/smoke_run_contract.log",
+      "inproc": true,
+      "note": "5 smoke runs follow the exploop run contract",
+      "elapsed_s": 0.0
+    },
+    {
+      "name": "exploop_init",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "/root/repos/rtc-sdd/Ghostbusters_team/scripts/exploop/supervisor.py",
+        "init",
+        "--wave",
+        "/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/handoff/dryrun_wave",
+        "--force"
+      ],
+      "cwd": ".",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/compat/exploop_init.log",
+      "timeout_s": 300,
+      "started": 1792312479.706681,
+      "jobname": "compat:exploop_init",
+      "elapsed_s": 1.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    },
+    {
+      "name": "exploop_plan",
+      "argv": [
+        "/root/.conda/envs/rtc-sdd/bin/python",
+        "/root/repos/rtc-sdd/Ghostbusters_team/scripts/exploop/supervisor.py",
+        "plan",
+        "--wave",
+        "/root/repos/rtc-sdd/Ghostbusters_team/rdloop/B4/handoff/dryrun_wave"
+      ],
+      "cwd": ".",
+      "check": "rc",
+      "state": "pass",
+      "log": "rdloop/B4/tests/compat/exploop_plan.log",
+      "timeout_s": 300,
+      "started": 1792312480.7216854,
+      "jobname": "compat:exploop_plan",
+      "elapsed_s": 30.0,
+      "timed_out": false,
+      "rc": 0,
+      "note": "rc 0"
+    }
+  ],
+  "idx": 5,
+  "done": true,
+  "started": 1792312479.673775,
+  "started_ts": "2026-10-18 11:34:39",
+  "finished_ts": "2026-10-18 11:35:10",
+  "ok": true
+}

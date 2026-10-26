@@ -1,0 +1,89 @@
+{
+  "description": "post-train-eval skill steps 1-5 (.claude/skills/post-train-eval/SKILL.md) + the final-epoch readout + paired-bootstrap CI (B3 plan step 5). Placeholders: {py} {run} (repo-relative run dir) {run_rel} (relative to SLS_setup) {k} {N} (final epoch) {ckpt_final} {model_flags} {names} {label} {merge_label} {final_label} {best_merge} {best_final} {best_merge_label} {best_final_label} {ci} {all_dirs} {all_labels}. A step is done when its 'done' outputs exist; stdout files appear only when the command exits 0. Keep in sync with the skill.",
+  "readouts": {
+    "merge": "{run}/local_eval/merge_top{k}",
+    "final": "{run}/local_eval/epoch_{N}"
+  },
+  "ci_files": {
+    "merge": "{run}/local_eval/merge_top{k}/compare_ci_vs_{best_merge_label}.json",
+    "final": "{run}/local_eval/epoch_{N}/compare_ci_vs_{best_final_label}.json"
+  },
+  "steps": [
+    {"name": "select_topk", "gpu": false, "cwd": "SLS_setup",
+     "cmd": ["{py}", "../scripts/select_topk.py", "--run", "{run_rel}", "--k", "{k}"],
+     "stdout": "{run}/top{k}_by_wf1/select_topk.log",
+     "done": {"exists": ["{run}/top{k}_by_wf1/merge_list.txt", "{run}/top{k}_by_wf1/select_topk.log"]}},
+
+    {"name": "merge_eval", "gpu": true, "cwd": ".",
+     "cmd": ["{py}", "scripts/local_eval.py", "--merge_list", "{run}/top{k}_by_wf1/merge_list.txt", "{model_flags}",
+             "--out", "{run}/local_eval/merge_top{k}", "--names", "{names}"],
+     "stdout": "{run}/local_eval/merge_top{k}.log",
+     "cache_check": {"list": "{run}/top{k}_by_wf1/merge_list.txt", "list_base": "SLS_setup", "out": "{run}/local_eval/merge_top{k}"},
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/metrics.json", "{run}/local_eval/merge_top{k}.log"],
+              "merge_list_matches": ["{run}/top{k}_by_wf1/merge_list.txt", "SLS_setup", "{run}/local_eval/merge_top{k}/merge_list.txt"]}},
+
+    {"name": "merge_probe", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/probe_report.py", "{run}/local_eval/merge_top{k}/scores"],
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/probe_report.json"]}},
+
+    {"name": "final_eval", "gpu": true, "cwd": ".",
+     "cmd": ["{py}", "scripts/local_eval.py", "--model_path", "{ckpt_final}", "{model_flags}",
+             "--out", "{run}/local_eval/epoch_{N}", "--names", "{names}"],
+     "stdout": "{run}/local_eval/epoch_{N}.log",
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/metrics.json", "{run}/local_eval/epoch_{N}.log"]}},
+
+    {"name": "final_probe", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/probe_report.py", "{run}/local_eval/epoch_{N}/scores"],
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/probe_report.json"]}},
+
+    {"name": "best_probe", "gpu": false, "cwd": ".", "optional": true,
+     "cmd": ["{py}", "scripts/probe_report.py", "{best_merge}/scores"],
+     "done": {"exists": ["{best_merge}/probe_report.json"]}},
+
+    {"name": "compare_merge", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/compare_evals.py", "{best_merge}", "{run}/local_eval/merge_top{k}",
+             "--labels", "{best_merge_label}", "{merge_label}"],
+     "stdout": "{run}/local_eval/merge_top{k}/compare_vs_{best_merge_label}.txt",
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/compare_vs_{best_merge_label}.txt"]}},
+
+    {"name": "compare_final", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/compare_evals.py", "{best_final}", "{run}/local_eval/epoch_{N}",
+             "--labels", "{best_final_label}", "{final_label}"],
+     "stdout": "{run}/local_eval/epoch_{N}/compare_vs_{best_final_label}.txt",
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/compare_vs_{best_final_label}.txt"]}},
+
+    {"name": "compare_all", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/compare_evals.py", "{all_dirs}", "--labels", "{all_labels}"],
+     "stdout": "{run}/local_eval/merge_top{k}/compare_all_readouts.txt",
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/compare_all_readouts.txt"]}},
+
+    {"name": "ci_merge", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/b3_compare_evals.py", "{best_merge}", "{run}/local_eval/merge_top{k}",
+             "--labels", "{best_merge_label}", "{merge_label}", "--ci", "{ci}"],
+     "stdout": "{run}/local_eval/merge_top{k}/ci_vs_{best_merge_label}.txt",
+     "copy": [["{run}/local_eval/merge_top{k}/compare_ci.json", "{run}/local_eval/merge_top{k}/compare_ci_vs_{best_merge_label}.json"]],
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/ci_vs_{best_merge_label}.txt"]}},
+
+    {"name": "ci_final", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/b3_compare_evals.py", "{best_final}", "{run}/local_eval/epoch_{N}",
+             "--labels", "{best_final_label}", "{final_label}", "--ci", "{ci}"],
+     "stdout": "{run}/local_eval/epoch_{N}/ci_vs_{best_final_label}.txt",
+     "copy": [["{run}/local_eval/epoch_{N}/compare_ci.json", "{run}/local_eval/epoch_{N}/compare_ci_vs_{best_final_label}.json"]],
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/ci_vs_{best_final_label}.txt"]}},
+
+    {"name": "progress_scores", "gpu": true, "cwd": "SLS_setup",
+     "cmd": ["{py}", "main_eval.py", "--model_merging", "--merge_list", "{run_rel}/top{k}_by_wf1/merge_list.txt", "{model_flags}",
+             "--arch", "sls", "--eval_data_path", "/mnt/paml-research/RTCFake/data/wav/progress",
+             "--protocol_path", "/mnt/paml-research/RTCFake/data/progress.txt",
+             "--score_path", "{run_rel}/model_merging_top{k}/scores.txt", "--batch_size", "32", "--num_workers", "8"],
+     "stdout": "{run}/model_merging_top{k}/main_eval.log",
+     "done": {"exists": ["{run}/model_merging_top{k}/scores.txt", "{run}/model_merging_top{k}/main_eval.log"],
+              "same_text": ["{run}/model_merging_top{k}/merge_list.txt", "{run}/top{k}_by_wf1/merge_list.txt"]}},
+
+    {"name": "submission", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/make_submission.py", "{run}/model_merging_top{k}/scores.txt"],
+     "stdout": "{run}/model_merging_top{k}/make_submission.log",
+     "done": {"exists": ["{run}/model_merging_top{k}/submission.zip", "{run}/model_merging_top{k}/make_submission.log"],
+              "newer_than": ["{run}/model_merging_top{k}/submission.zip", "{run}/model_merging_top{k}/scores.txt"]}}
+  ]
+}

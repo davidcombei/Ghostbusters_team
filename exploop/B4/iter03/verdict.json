@@ -1,0 +1,48 @@
+{
+  "merge": {
+    "run": 92.01180869050039,
+    "base": 91.97880641320396,
+    "delta": 0.03300227729643268,
+    "ci_low": -0.4706137214361495,
+    "ci_high": 0.5092148158168027,
+    "clean_drop": -0.07518078006337703,
+    "new_best": false,
+    "decision": "revisit",
+    "verdict": "null (inside +-0.5)",
+    "readout": "SLS_setup/exp/B4c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_dtx03_s1234_epoch8_bs16_20261019004222/local_eval/merge_top5",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5",
+    "base_label": "B2f-top5",
+    "label": "B4c-top5"
+  },
+  "final": {
+    "run": 92.3387959325349,
+    "base": 92.13685698540242,
+    "delta": 0.20193894713247573,
+    "ci_low": -0.3857722202960731,
+    "ci_high": 0.7757870738223756,
+    "clean_drop": -0.3303503954475815,
+    "new_best": false,
+    "decision": "revisit",
+    "verdict": "null (inside +-0.5)",
+    "readout": "SLS_setup/exp/B4c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_dtx03_s1234_epoch8_bs16_20261019004222/local_eval/epoch_8",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8",
+    "base_label": "B2f-ep8",
+    "label": "B4c-ep8"
+  },
+  "objective": "half_B.wf1.wf1",
+  "rules": {
+    "new_best_delta": 0.0,
+    "band": 0.5,
+    "promote": {
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "positive": {
+      "delta_gt": 0.5,
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "keep_best": true
+  },
+  "written": "2026-10-19 05:20:03"
+}

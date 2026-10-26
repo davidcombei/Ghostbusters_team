@@ -106,3 +106,10 @@ probe_loudnorm:
   base_dir: data/dev_noisy_sim/probes_v1/loudnorm
   protocol: data/dev_noisy_sim/probes_v1/loudnorm/protocol.txt
   meta: data/dev_noisy_sim/probes_v1/loudnorm/meta.csv
+
+# [B3 wave] frozen unseen-recipe set (scripts/b3_build_unseen_set.py): MUSAN music, compand/agate/crystalizer/8k, speex|g711, packet loss. role unseen -> never part of WF1; read at wave end only.
+sim_unseen_v1:
+  role: unseen
+  base_dir: data/dev_noisy_sim/unseen_v1
+  protocol: data/dev_noisy_sim/unseen_v1/protocol.txt
+  meta: data/dev_noisy_sim/unseen_v1/meta.csv

@@ -1,0 +1,118 @@
+{
+  "report_path": "docs/experiments-exploration/b4-experiments/20261019_052003_B4c_qwen17_rtc_musan_loud23_cos8_lr2.5e6_dtx03_s1234.md",
+  "headline": "B4c (B2f + --aug_dtx_p 0.3) is null on both readouts per verdict.json. Merge half_B WF1 is 92.01 vs B2f 91.98 (delta +0.03, CI [-0.47, +0.51]); the final epoch is 92.34 vs 92.14 (delta +0.20, CI [-0.39, +0.78]). Decision revisit, new_best false, so B2f stays the reference. Only the final-epoch clean F1 moved with a CI that excludes 0: +0.33 [+0.05, +0.59]. WF1@oracle rose +0.25 / +0.27, but B4c has the wave's largest oracle gap (0.84 / 0.76, of which a single global threshold shift recovers 0.56 / 0.61). The pre-registered dtx_gate mechanism is NOT SHOWN. Criterion (ii) passes on the full set (+13, versus B4a's placebo +10) but fails on half B (-7 / -4). The VAD contrast is DIRECTIONAL on the final (DiD -0.64, rank 1/3) and REFUTED on the merge (-0.34, rank 2/3). The realised dose ratio is 0.032, under the 0.25 rule, so the null reads \"inconclusive (under-dosed)\". No falsifier fired and no run anomaly was flagged. Matched spoof recall fell 0.69 on both readouts (half-B matched spoof misses 8 -> 19 / 9 -> 20), which breaks a must-not-move item.",
+  "went_ok": [
+    "Clip-level dose was exactly as designed: wrtc_dtx share 0.2983-0.3016 per epoch, class-balanced, zero-fill share 0.497-0.509, fail_wrtc_dtx 0. Header lines and the selftest PASS confirm the lever was on (train.log, stdout log).",
+    "No falsifier fired and no run anomaly was flagged (b4_dsp_slices.py). Spoof-miss guards held: half-B noisy 31/33 (bound 36/35), offline VAD 7/11 (bound 25/22). ep1 TrainAcc 87.41, ep8 TrainLoss 0.0498.",
+    "Final-epoch clean F1 +0.33 [+0.05, +0.59], p 0.006 (ci_vs_B2f-ep8.txt). Clean bona recall rose 92.91 -> 94.27.",
+    "WF1@oracle rose +0.25 / +0.27 and heldout F1@oracle went 88.94 -> 89.40 and 88.89 -> 90.04 (metrics.json half_B). Bona recall rose on clean, matched and echo on both readouts.",
+    "The VAD contrast is directional on the primary final readout: DiD -0.64 [-1.27, -0.06], rank 1 of 3 against both placebos. VAD-gated heldout bona recall rose 66.2 -> 69.9 (full set, final).",
+    "Half-B saturated noisy bona FA on the merge fell 136 -> 119. level_flip_bona fell 1.54 -> 1.27 / 1.74 -> 1.60.",
+    "As a placebo, B4c shows B4a's WF1 gain is not generic 30% DSP augmentation. It beats B4a on B4a's own NS contrast (-0.07 vs +0.49, final), which leaves afftdn-vs-anlmdn as B4a's only NS-specific signal (B4a -1.39 vs B4c -0.50, B4b -0.36)."
+  ],
+  "went_wrong": [
+    "WF1 is null on both readouts: +0.03 [-0.47, +0.51] merge and +0.20 [-0.39, +0.78] final (verdict.json). Half of the final's gain is the clean set.",
+    "Mechanism NOT SHOWN. Criterion (ii) fails on half B (-7 final / -4 merge, need >= 0). The full-set +13 clears B4a's placebo +10 by only 3 clips, and all three B4 arms beat the null panel max there. VAD is refuted on the merge (DiD -0.34, rank 2/3), and neither fill shows a specific effect.",
+    "Under-dosed: dose_ratio 0.032. 43.4% of processed clips had <1% of samples gated and only 1.0% had >=20%, against 32.1% of the heldout VAD clips. Heavily gated (>=40%) heldout bona moved spoof-ward (logit -0.25 -> +0.26 merge, -0.13 -> +0.12 final).",
+    "Spoof recall eroded and a must-not-move item broke: matched R_spoof -0.69 on both readouts. Half-B spoof misses: matched 8->19 / 9->20, echo 4->6 / 5->11, clean 6->10 / 3->8. The new misses sit in zh and in coffee/rain noise. R_spoof rose in only 18/9 of 63 slice rows.",
+    "Operating point: the largest oracle gap of the wave (0.84 / 0.76), with the best global threshold at p 0.950 / 0.966. Noisy calibration gap 0.66/0.71 -> 0.94/0.97, so the ranking gain is not converted at p = 0.5.",
+    "Non-speech probes untouched: sil_only / noise_only bona still 100% spoof. On the final, mean dP rose (sil_only +0.8985 -> +0.9134). The final-readout saturated core is unchanged (133 -> 133).",
+    "English heldout got worse: full-set F1 -1.48 / -2.12, R_bona 59.7 -> 57.8 / 60.5 -> 56.6. Other drops: heldout snr 5 -2.60 (final), matched snr 0 -2.59 (final), matched opus:wechat -3.00 (final)."
+  ],
+  "largest_remaining_error": "Confident noisy bona false alarms on heldout, worst for English, which no B4 arm has removed. On B4c, 207 / 199 of the 782 half-B noisy bona are false alarms (merge / final), 119 / 133 of them at p >= 0.99. Half-B heldout English bona recall is 58.1 / 57.4, against Chinese 74.4 / 76.3. The sil_only and noise_only bona probes are still 100% spoof. B4c also has the wave's largest threshold-recoverable oracle gap (0.56 / 0.61 of 0.84 / 0.76), so its small ranking gain is lost at p = 0.5.",
+  "proposals": [
+    {
+      "rank": 1,
+      "kind": "config",
+      "lever": "apm_ns dose step",
+      "change": {
+        "set": {
+          "--aug_apm_p": [
+            "0.6"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Noisy bona false alarms (half-B noisy FA: B2f 213/210, B4a 192/177) and noisy EER (B2f 10.09/9.66, B4a 9.53/9.16). Also B4a's merge CI, whose low end was -0.01.",
+      "hypothesis": "B4a's gain (final +1.02 [+0.43, +1.60], merge +0.57) is specific to the WebRTC NS pass and grows with dose. Two equally dosed 30% DSP arms on other slots are null (B4b +0.24/+0.12, B4c +0.03/+0.20), so generic extra augmentation does not explain B4a. B4a also has the smallest oracle gap (0.10, final) and the most negative afftdn-vs-anlmdn DiD of the 3 arms.",
+      "predicted_signature": "Merge delta vs B2f > +0.5 with CI low > 0; final delta >= +0.5. Noisy EER <= 9.53/9.16 and half-B noisy bona FA <= 192/177. Guards: clean F1 within 0.5, full-set offline-NS spoof misses <= 29, matched R_spoof within 0.5, ep1 TrainAcc within 2 of 87.36.",
+      "falsifier": "Final delta vs B2f < +0.5 means no dose response; stop the apm_ns line. Half-B heldout spoof misses above B4a's 23/19, or matched R_spoof down > 0.5, means more NS trades spoof recall for bona recall; drop."
+    },
+    {
+      "rank": 2,
+      "kind": "config",
+      "lever": "apm_ns strong-suppression levels (coupled group)",
+      "change": {
+        "set": {
+          "--aug_apm_p": [
+            "0.3"
+          ],
+          "--aug_apm_ns_levels": [
+            "18",
+            "21"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "The heldout afftdn-NS bona deficit (B2f final recall T/C 62.6/75.9) and heldout F1 (87.92/88.27).",
+      "hypothesis": "After two placebo arms, the only NS-specific signal left is the harsh-suppressor contrast. B4a's afftdn-vs-anlmdn DiD (-1.39/-1.14) ranks 1/3 against B4b (-0.36/-0.22) and B4c (-0.50/-0.44), while B4a's main NS contrast is beaten by placebo B4c. Training only at kHigh/kVeryHigh (18/21 dB) may match afftdn artefacts better than the uniform 6-21 dB draw.",
+      "predicted_signature": "afftdn-vs-anlmdn DiD <= -1.70 (the 'strong' line), still rank 1 of the arms. Heldout F1 delta >= +0.5 on both readouts and merge WF1 delta >= +0.57. Guards: offline-NS spoof misses <= 29, clean within 0.5.",
+      "falsifier": "afftdn-vs-anlmdn DiD > -0.84 (the panel mean) on the final means the suppressor level is not the active ingredient; drop the level idea. Matched F1 down > 0.5 means losing raw-noise exposure costs more than it buys."
+    },
+    {
+      "rank": 3,
+      "kind": "config",
+      "lever": "opus_plc zero-loss control (decoder path only, coupled group)",
+      "change": {
+        "set": {
+          "--aug_opus_plc_p": [
+            "0.3"
+          ],
+          "--aug_opus_loss": [
+            "0",
+            "0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Matched F1 and matched hard-app bona recall (opus:qq / wechat). Also attributes B4b's matched gain (+0.86 merge) to the decoder path or to packet loss.",
+      "hypothesis": "B4b's matched gain comes from the aligned in-process libopus decode, not from packet loss. B4c, another 30% DSP lever, did not reproduce it (matched -0.17/+0.12), so the gain was not generic augmentation. This is the plan's attribution control, run as a diagnostic.",
+      "predicted_signature": "Matched F1 delta >= +0.5 vs B2f on both readouts; heldout F1 delta >= 0; WF1 delta >= B4b's +0.24/+0.12; VAD contrast z < +3 (B4b was ANOMALOUS at +3.82/+4.25).",
+      "falsifier": "Matched delta < +0.5 on both readouts with WF1 within +-0.5 means the decoder path is worth nothing either; close the opus family. VAD z > +3 again means the decoder path itself pushes gated pauses spoof-ward."
+    },
+    {
+      "rank": 4,
+      "kind": "config",
+      "lever": "dtx_gate exposure x3.3 (the only dose knob available as a flag)",
+      "change": {
+        "set": {
+          "--aug_dtx_p": [
+            "1.0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "The offline VAD-gated heldout bona (B2f final recall T/C 66.2/73.6), the >=40%-gated heldout bona (logit -0.25/-0.13 on B2f) and criterion (ii) on half B.",
+      "hypothesis": "B4c's directional VAD gain on 1-40%-gated bona is limited by exposure. p=1.0 raises >=20%-gated training clips from about 230 to about 760 per epoch. The per-clip gating distribution is unchanged, so dose_ratio stays near 0.03 (still 'under-dosed'); a real dose variant (hangover U(0,200) ms) is a code change for the owner/rdloop. The value of this run is a cap: if it is null, the flag-level dtx line is closed.",
+      "predicted_signature": "VAD DiD <= -1.05 on the final (shown), rank 1 vs B4a/B4b; criterion (ii) >= 0 on half B for both readouts; >=40%-gated heldout bona logit below -0.25/-0.13; sil_only bona dP below +0.8929/+0.8985.",
+      "falsifier": "Half-B noisy spoof misses > 36/35, or matched R_spoof down > 0.5 again (B4c -0.69), means gating carries class information; drop the dtx line. VAD DiD >= -0.64 (no better than B4c) means exposure is not the limit."
+    },
+    {
+      "rank": 5,
+      "kind": "seed_repeat",
+      "lever": "B2f seed replicate (outside wave search space; needs owner decision)",
+      "change": {
+        "set": {
+          "--seed": [
+            "1235"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "B2f's own half-B seed band, so B4a's +0.57/+1.02 and the three null arms can be read against same-configuration noise instead of the 9-run mixed panel (heldout F1 SD 1.35/1.39).",
+      "hypothesis": "Same-configuration seed noise on half-B WF1 is below 0.5. If so, B4a's +1.02 final gain is real and the B4b/B4c nulls are true nulls. wave.json pins seed 1234, --seed is not in 'allowed', and the owner declined a B2f replicate arm, so this needs owner approval.",
+      "predicted_signature": "|delta| <= 0.5 vs B2f on both readouts (merge 91.98, final 92.14).",
+      "falsifier": "A repeat that differs from B2f by >= +0.57 (merge) or >= +1.02 (final) puts B4a's gains inside seed noise."
+    }
+  ]
+}

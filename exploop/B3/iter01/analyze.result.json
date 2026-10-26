@@ -1,0 +1,117 @@
+{
+  "report_path": "docs/experiments-exploration/b3-experiments/20261010_143058_B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234.md",
+  "headline": "B3a (B2f + --consistency js --consistency_lambda 0.3 --consistency_pairs both, --batch_size 8) is the new best per verdict.json. The objective (top-5 merge, half_B WF1@0.5) went from 91.98 to 93.06: delta +1.08, CI [+0.52, +1.67], clean drop 0.12, decision promote, verdict positive. The final epoch went from 92.14 to 92.94: delta +0.80, CI [+0.22, +1.42], but clean F1 fell -0.63 (CI [-1.02, -0.26]), so its decision is revisit (\"above band, clean F1 dropped\"). Most of the gain is on heldout: F1 +2.28 [+1.10, +3.47], bona recall 69.31 to 74.94, gsm bona recall +8.2 and vacuum_cleaner +14.3 at ep8. Noisy EER fell from 10.09 to 9.16. The merge operating point is now optimal at 0.5 (oracle gap 0.18; a global shift recovers only 0.02). From the predicted signature, noisy EER, heldout and matched bona recall, and a flat clean score (merge only) all appeared; noise_only bona stayed 100 % spoof. The run took 7 h 52 min with 2x the optimiser steps (75792 vs 37896). Mini WF1 peaked at epoch 6 (92.87) and fell to 92.14 at epoch 8 while dev loss rose to 0.172, so the merge beat the final epoch for the first time in the lineage (93.06 vs 92.94).",
+  "went_ok": [
+    "Pre-registered promote fired on the objective: merge half_B 93.06 vs 91.98, +1.08, paired-bootstrap CI [+0.52, +1.67], p(not better) 0.000, clean drop 0.12 (verdict.json: promote / positive / new_best true)",
+    "It is a ranking gain, not a threshold gain: oracle +0.65/+0.63, separability gap 7.87->6.56 (merge), noisy EER 10.09->9.16, heldout EER 12.03->10.42",
+    "Heldout gain is significant on its own: +2.28 [+1.10, +3.47] (merge), +2.05 [+0.69, +3.42] (ep8). Heldout bona recall +5.63 in both readouts; paired heldout bona 27 fixed / 5 broken (merge)",
+    "Generalisation to unseen DSP: heldout gsm bona recall 65.4->73.6 and vacuum_cleaner 57.1->71.4 (ep8, full set); F1 up in 55 of 63 slice rows at the merge with min slice spoof recall 97.02",
+    "Spoof-side operating-point bias removed: merge best global threshold at logit -0.15 (B2f +3.10), calibration gap noisy 0.66->0.11",
+    "Clean run: Consistency header with 37,125 twins found, codec counts = 2 x 75,785 (two views per clip), no traceback or codec failure, nothing pruned, git df3dff2 clean, both registry rows with CI",
+    "Complementary to B2f (logit r 0.954-0.967): zero-training score average B2f-ep8 + B3a-ep8 = 93.40 on half_B"
+  ],
+  "went_wrong": [
+    "Final epoch loses clean bona: clean F1 -0.63, CI [-1.02, -0.26]; clean bona recall 92.91->91.12 (17 fixed / 42 broken); clean bona at p>=0.99 5.3->8.3 % -> final readout decision revisit",
+    "Over-training at the tail of the cosine: mini WF1 peaked at epoch 6 (92.87) then 92.36, 92.14; dev loss 0.0990->0.1722 (+74 %) with train acc 99.71 %; final epoch lost to the merge on half B (92.94 vs 93.06) and half A (92.61 vs 93.04)",
+    "Final-epoch gain is half-B specific: half_A WF1 92.61 vs B2f-ep8 92.94 (-0.33); full-set ep8 only +0.25 (92.78 vs 92.53)",
+    "Saturated core untouched: noisy bona at p>=0.99 17.4->17.6 % (merge) and 17.0->19.8 % (ep8); 77-85 % of remaining noisy bona false alarms are saturated (B2f 63-64 %)",
+    "English not helped: of 33 fewer half_B noisy bona false alarms only 4 are English (95->91 vs zh 118->89); full-set en EER rose at ep8 on matched 12.68->14.36, heldout 16.34->17.63, echo 10.54->12.06",
+    "noise_only / sil_only bona-source probes still 100 % spoof (predicted signature item not met); echo EER 4.86->5.62 and limiter-probe bona flips 6->14 clips at ep8",
+    "Confound: the lever doubled optimiser steps (75792 vs 37896) and views per clip; the 0.3*JS term is only 2.5-3.9 % of the train loss, so the gain cannot be attributed to the divergence term alone; runtime 7 h 52 min vs 4 h 08"
+  ],
+  "largest_remaining_error": "Confident noisy bona false alarms, half of them English. In the B3a merge on half_B, 180 of 782 noisy bona are called spoof, and 77 % of those sit at p_spoof >= 0.99. English is 258 of the 782 bona but carries 91 of the 180 false alarms. English bona recall is 67.4 / 62.0 on matched / heldout, against 84.7 / 81.3 for Chinese. English EER did not improve and rose at ep8. Since the merge's global threshold is already optimal at 0.5 (only 0.02 is recoverable), the remaining error is ranking, not calibration.",
+  "proposals": [
+    {
+      "rank": 1,
+      "kind": "config",
+      "lever": "sampler_balanced (class + language balanced sampler, CE weights re-derived to keep the effective prior)",
+      "change": {
+        "set": {
+          "--sampler": [
+            "balanced"
+          ],
+          "--sampler_lang_balance": [],
+          "--sampler_bona_frac": [
+            "0.5"
+          ],
+          "--ce_weights": [
+            "0.3223",
+            "0.6777"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "English bona false alarms: 91 of 180 half_B noisy bona FAs (merge) from 258 of 782 bona; en bona recall 67.4 / 62.0 vs zh 84.7 / 81.3; en share at p>=0.99 26.4 / 28.7 %",
+      "hypothesis": "The en-zh gap is an exposure problem. English bona are 2,922 of 75,785 training clips, and consistency cannot fix it because both views of an English clip agree while being wrong. The derivation from train_label.txt: 14,353 bona of 75,785 (18.94 %) with CE 0.1/0.9 gives an effective bona:spoof weight of 2.103:1, which at a 0.5 bona share is CE 0.3223 / 0.6777. Drawing English bona about 6.5x per epoch at the same effective prior should raise English bona recall without moving the operating point.",
+      "predicted_signature": "On the merge vs B3a (93.06): half_B English bona recall up >= 3 points on matched and heldout (from 67.4 / 62.0); English share at p>=0.99 down (from 26.4 / 28.7 %); full-set en EER down (from 13.66 / 17.04); zh bona recall and clean F1 flat; best global threshold still near logit 0.",
+      "falsifier": "Delta merge half_B within +-0.5 of 93.06 AND English bona recall within +-3 means exposure is not the cause (null). A clean F1 drop > 0.5, or a best global logit shift beyond +-1, means the prior derivation failed. Epoch-8 dev loss above 0.172 means the repeated English draws over-fit. Promote only if delta > +0.5 with the CI excluding 0 and clean drop <= 0.5."
+    },
+    {
+      "rank": 2,
+      "kind": "config",
+      "lever": "consistency_dose (--consistency_lambda 1.0)",
+      "change": {
+        "set": {
+          "--consistency_lambda": [
+            "1.0"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Saturated noisy bona core (17.6 % of noisy bona at p>=0.99 on the merge, 77 % of the false alarms) and the remaining noisy separability (noisy EER 9.16)",
+      "hypothesis": "If the JS divergence is what buys invariance, then at lambda 0.3 it is under-weighted: 0.3*JS is 2.5-3.9 % of the train loss and JS fell to 0.0038 by epoch 8. Tripling it pushes the twin views to agree on the confident errors too. If nothing moves, the B3a gain came from the paired views and doubled steps, not from the divergence.",
+      "predicted_signature": "Merge noisy EER below 9.16; heldout bona recall above 74.94; noisy bona share at p>=0.99 below 17.6 %; epoch-8 JS below 0.0038; clean F1 flat (within 0.5 of 97.48).",
+      "falsifier": "Delta merge half_B within +-0.5 of 93.06 means the divergence weight is not the active ingredient (null: keep 0.3, stop dosing). A clean F1 drop > 0.5 means over-regularised (negative). Promote only if delta > +0.5 with the CI excluding 0 and clean drop <= 0.5."
+    },
+    {
+      "rank": 3,
+      "kind": "config",
+      "lever": "snr_0_20 (--aug_snr_db 0 20)",
+      "change": {
+        "set": {
+          "--aug_snr_db": [
+            "0",
+            "20"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "SNR-0 bona recall, the worst SNR slice on both sets: full-set merge 65.8 matched / 65.3 heldout vs 85.8 / 79.9 at 20 dB; consistency moved it by only +0.9 to +3.4",
+      "hypothesis": "SNR-0 bona false alarms are out-of-range inputs (training SNR is 5-20 dB), not a lack of view invariance. Extending the uniform draw to 0 dB teaches the model that very noisy bona is still bona.",
+      "predicted_signature": "SNR-0 bona recall up >= 3 on matched and heldout; SNR-0 EER down (ep8 16.37 / 15.00); slices at >= 10 dB flat; clean F1 flat; merge half_B WF1 above 93.06.",
+      "falsifier": "Delta merge half_B within +-0.5 of 93.06 AND SNR-0 bona recall within +-3 means the SNR range is not the limit (null). A drop of > 2 bona recall at 15-20 dB means the uniform 0-20 draw diluted the high-SNR mass. Promote only if delta > +0.5 with the CI excluding 0 and clean drop <= 0.5."
+    },
+    {
+      "rank": 4,
+      "kind": "config",
+      "lever": "specaug (--specaug)",
+      "change": {
+        "set": {
+          "--specaug": []
+        },
+        "remove": []
+      },
+      "targets": "Over-fitting tail of the doubled-step run: dev loss 0.099->0.172, mini WF1 down after epoch 6, final < merge, clean bona at p>=0.99 8.3 % and echo 15.3 % at ep8, clean F1 -0.63 at ep8",
+      "hypothesis": "With twice the optimiser steps per epoch, B3a over-trains the cosine tail and grows confident bona errors. Time/frequency masking is a regulariser that does not touch the class prior, so it should flatten dev loss and keep the late epochs from degrading.",
+      "predicted_signature": "Epoch-8 dev loss well below 0.172; mini WF1 not falling over epochs 6-8; final epoch >= merge on half_B; clean ep8 F1 not below 97.48; clean bona share at p>=0.99 at ep8 <= 6.4 %; merge half_B above 93.06.",
+      "falsifier": "Delta merge half_B within +-0.5 of 93.06 AND epoch-8 dev loss >= 0.17 means masking does not regularise this backbone (null). A clean drop > 0.5 means negative. Promote only if delta > +0.5 with the CI excluding 0 and clean drop <= 0.5."
+    },
+    {
+      "rank": 5,
+      "kind": "seed_repeat",
+      "lever": "seed repeat of B3a (--seed 1235)",
+      "change": {
+        "set": {
+          "--seed": [
+            "1235"
+          ]
+        },
+        "remove": []
+      },
+      "targets": "Seed band of the first lever above the near-replicate band (+1.08 merge, decided on one seed); the half-A / half-B disagreement on the final epoch (-0.33 vs +0.80)",
+      "hypothesis": "The paired-consistency gain is a property of the recipe, not of seed 1234, so a second seed reproduces the merge within +-0.5 and the heldout gain over B2f.",
+      "predicted_signature": "Merge half_B within +-0.5 of 93.06; heldout F1 > +1.5 over B2f-top5 (87.92); clean within 0.5 of 97.48.",
+      "falsifier": "A repeat merge half_B below 92.48 (B2f merge + 0.5) means B3a's gain is inside seed noise, and the consistency lever should be re-evaluated before stacking more levers on it."
+    }
+  ]
+}

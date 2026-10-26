@@ -1,0 +1,128 @@
+{
+  "part": "core",
+  "headline": "b4wave core skeleton done: lever registry + RTCAugmenterB4 hook chain (stage -> post_dsp -> codec, separate rng4), build_rtc_augmenter_b4 returns the B3 object when levers are off, B4 dataset builders, trainer wiring (build_parser + \"B4 wave\" group, sha/version header, config module_sha256/b4_levers, per-class telemetry only when a lever is on), checks.py cpu/gpu/overfit (48/48 CPU checks pass), README, and the shared readout scripts/b4_dsp_slices.py, which reproduces every number in the plan's section 1.1/2.0 and O3.2 and includes the owner's O3.1-O3.3 rules",
+  "files": [
+    {
+      "path": "SLS_setup/b4wave/__init__.py",
+      "purpose": "__version__ + module_files() + module_sha256() (name, NUL, sha256 of bytes, newline per top-level .py, sorted by name)"
+    },
+    {
+      "path": "SLS_setup/b4wave/augment.py",
+      "purpose": "LeverSpec/LEVERS registry (empty in core), active_levers / b4_header_lines, RTCAugConfigB4(RTCAugConfigB3), b4_config_from_args (B3 config field for field + active lever fields), RTCAugmenterB4(RTCAugmenterB3): __call__ mirrors the parent with _post_dsp between _stage and the codec, _codec dispatch (fixed/random/codec-slot lever), lazy rng4=default_rng([seed,pid,0xB4]) re-created on pid change, lever meta keys/describe/reserve assert/_init_<id> only when on; build_rtc_augmenter_b4 returns build_rtc_augmenter_b3(args) when no lever is on"
+    },
+    {
+      "path": "SLS_setup/b4wave/data.py",
+      "purpose": "build_augmenter_b4 / build_dataset_b4: copies of the b3wave builders using the B4 augmenter factory"
+    },
+    {
+      "path": "SLS_setup/b4wave/train.py",
+      "purpose": "scaffold copy + build_parser() (same b3wave args) with an empty 'B4 wave' group, validate_b4_args, build_dataset_b4, 'b4wave sha256: <12>' + lever header lines (only when on), config.yaml b4wave_version/module_sha256/b4_levers, train_epoch(track_by_class) + add_class_meta + b4_class_row -> 'Epoch N B4 aug-by-class ...' and metrics.jsonl['b4'] only when a lever is on"
+    },
+    {
+      "path": "SLS_setup/b4wave/checks.py",
+      "purpose": "targets cpu/all, gpu --ckpt, overfit --lever, model/optim (b3wave's); CPU groups module, flags, augmenter, reserve_names, imports, trainer, data, timing, dsp_slices; plan constants (PLAN_FLAGS, wave set, packages, params_added, op names, timing bars) so lever parts plug in through the registry"
+    },
+    {
+      "path": "SLS_setup/b4wave/README.md",
+      "purpose": "module description, reproduction statement, flag table (7 plan flags, status pending), lever plug-in contract, telemetry, reserve + G6 labels, readout usage + verdict rules incl. owner O3.1-O3.3, checks table"
+    },
+    {
+      "path": "scripts/b4_dsp_slices.py",
+      "purpose": "shared mechanism readout (plan section 1.1/3 + O3.1-O3.3): clipped-logit DiD + bootstrap CI per contrast, pinned null panel (B2a flagged), DiD*/z/bar, clip DiD, sign test, half-B per readout, placebo rank, verdicts (provisional unless --summary, capped at directional with 0 placebos), pinned tertiles + criterion (ii), spoof-miss guards + Poisson bounds, heldout-F1 panel SD/clearing counts + falsifier-(1) escape, run-anomaly flag, lever verdicts, loss-bin/exclusive-stage/probe reports, --json_out"
+    },
+    {
+      "path": "rdloop/B4/impl/progress.md",
+      "purpose": "done / left / decisions / notes for the lever parts"
+    },
+    {
+      "path": "rdloop/B4/scratch/toy_trainer_run.py",
+      "purpose": "scratch: drive b4wave.train.main() on CPU with a toy model (levers off / stub lever) to test trainer wiring"
+    },
+    {
+      "path": "rdloop/B4/scratch/gpu_check_stub.py",
+      "purpose": "scratch: exercise check_gpu's lever-on branch with a stub lever"
+    }
+  ],
+  "levers": [],
+  "tests": [
+    {
+      "name": "checks_cpu",
+      "command": "cd SLS_setup && python -m b4wave.checks cpu",
+      "device": "cpu",
+      "what": "48 checks: module sha/version; flags vs plan, registry vs parser, exploop grep, base-argv parse == b3wave's 100 args, levers off; levers-off build returns the B3 object, B4 config == B3 config, forced RTCAugmenterB4 bit-identical (200 + 10 fixed + 10 random-profile codec clips, rng4 never created), stub levers: parent stream untouched, rng4 seed [seed,pid,0xB4], pid re-seed, meta keys/describe/header, codec-slot dispatch; reserve names; fresh-process import probe; per-class telemetry no effect on train_epoch; dataset builders == b3wave (3 real clips identical); timing; dsp_slices reproduces the plan tables + verdict-rule unit cases"
+    },
+    {
+      "name": "checks_gpu",
+      "command": "cd SLS_setup && python -m b4wave.checks gpu --ckpt exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/ckpt/epoch_8_dev_loss_0.144168.pth",
+      "device": "gpu",
+      "what": "B2f checkpoint loads key-exact into ModelSLSB3, logits == ModelSLS (<=1e-4) on 4 real dev clips; each registered lever forced on: forward + backward on lever-augmented training clips, finite loss/grads"
+    },
+    {
+      "name": "checks_overfit",
+      "command": "cd SLS_setup && python -m b4wave.checks overfit --lever <apm_ns|dtx_gate|opus_plc>",
+      "device": "gpu",
+      "what": "no B4 lever adds parameters: SKIP + exit 0 for approved ids, FAIL for unknown ids"
+    },
+    {
+      "name": "dsp_slices_on_b2f",
+      "command": "python scripts/b4_dsp_slices.py --run SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8 --lever none --json_out $TMPDIR/b2f_self.json",
+      "device": "cpu",
+      "what": "readout CLI end to end on B2f (self-comparison null; reproduces the plan tables)"
+    }
+  ],
+  "cpu_results": [
+    {
+      "command": "python -m py_compile b4wave/{__init__,augment,data,train,checks}.py ../scripts/b4_dsp_slices.py",
+      "rc": 0,
+      "summary": "all compile"
+    },
+    {
+      "command": "python -m b4wave.train --help",
+      "rc": 0,
+      "summary": "help prints all b3wave arguments + the 'B4 wave' group (no lever flags yet: they come with the lever parts)"
+    },
+    {
+      "command": "python -m b4wave.checks cpu",
+      "rc": 0,
+      "summary": "48/48 PASS in 59 s; levers off: forced B4 augmenter 200/200 + 10/10 + 10/10 clips bit-identical to B3, timing 0.2946 CPU-s/clip levers off, dsp_slices reproduces every plan number"
+    },
+    {
+      "command": "python -m b4wave.checks gpu (run on the CPU, CUDA hidden)",
+      "rc": 0,
+      "summary": "2/2 PASS: ckpt keys exact, max |dlogit| vs ModelSLS 0.00e+00 on 4 dev clips; no lever registered yet"
+    },
+    {
+      "command": "python rdloop/B4/scratch/gpu_check_stub.py",
+      "rc": 0,
+      "summary": "check_gpu lever-on branch with a stub lever: forward + backward finite, stub_hit counted"
+    },
+    {
+      "command": "python rdloop/B4/scratch/toy_trainer_run.py /tmp/rdloop_B4/implement_core/toy2 stub (and the levers-off pass)",
+      "rc": 0,
+      "summary": "toy-model trainer main(): levers off = b3wave lines + b4wave/sha lines, metrics row without 'b4', config b4_levers []; stub on = header line, stub_hit in the B3 line, 'Epoch 1 B4 aug-by-class bona: n=8 ... stub_hit=5 | spoof: n=32 ... stub_hit=17', metrics 'b4' row, 'Experiment saved to:'"
+    },
+    {
+      "command": "python scripts/b4_dsp_slices.py --run <B2f epoch_8> --lever none --json_out ...",
+      "rc": 0,
+      "summary": "~6 s; NS 276/106 G +0.85 panel +0.32/0.27/-0.03/+0.68 bar -0.22; VAD bar -1.05; PLC-online bar -1.39; tertiles 518/500/482, sat 63/73/109 merge and 66/76/107 final; criterion (ii) panel -10.2/5.8/0; guards 18/18<=29, 15/13<=25/22, 16/15<=26/25, 24/23<=36/35; heldout F1 panel 88.50 sd 1.35, 5/9 and 4/9 clearing (all match plan_agreed.md / critique_v3.md)"
+    },
+    {
+      "command": "rdlib.check_manifest(rdloop/B4/isolation/manifest.json) (read-only)",
+      "rc": 0,
+      "summary": "0 violations over 138 protected files"
+    }
+  ],
+  "equivalence_argument": "With every B4 flag at its default (and the core registers no lever, so all are off), b4wave.train runs b3wave's trainer with no change to training. (1) build_rtc_augmenter_b4(args) returns build_rtc_augmenter_b3(args), the B3 augmenter object itself, and build_dataset_b4/build_augmenter_b4 are line copies of the b3wave builders with that factory. So the data path, the numpy/python/torch draws, describe(), meta_keys and the augmenter keys in config.yaml are b3wave's. Checks: levers_off_returns_b3_object, b4_config_equals_b3_config, train_dataset_levers_off_equals_b3, and train_items_bit_identical, where 3 real clips are bit-identical after load + augment + ffmpeg codec. (2) Even a forced RTCAugmenterB4 with no lever on is bit-identical to B3 on 200 clips without the codec plus 10 with fixed and 10 with random codec profiles, with the same stage_counts, and it never creates rng4. Its __call__ mirrors RTCAugmenter/RTCAugmenterB3 line for line, and _post_dsp returns the audio untouched without drawing. (3) No lever package or lever module is imported and no libopus is mapped, checked in a fresh process. (4) The model is b3wave's ModelSLSB3: keys are exact and logits match ModelSLS exactly on real dev clips (checks gpu, run on the CPU here). Optimizer, schedule, EMA, checkpointing, resume and pruning code is the unchanged copy. (5) build_parser() holds the same b3wave arguments, and parsing B2f's argv gives all 100 b3wave args unchanged (parser_reproduces_b3wave_on_base_argv). (6) Per-class telemetry runs only when a lever is on (track_by_class=bool(b4_levers)). Even when on, train_epoch losses and parameters are bit-identical (train_epoch_by_class_no_effect). The metrics.jsonl row gets 'b4' only when a lever is on. Bookkeeping-only differences: two header lines after 'b3wave: <v>' ('b4wave: <v>' from the scaffold, and 'b4wave sha256: <12>' required by the module contract) and three config.yaml keys (b4wave_version, module_sha256, b4_levers: []). The 'Epoch N/M TrainLoss', 'Epoch N LocalWF1' and 'Epoch N B3' lines are unchanged.",
+  "addressed": [],
+  "open_issues": [
+    "Scaffold vs plan section 2.0: the plan says the 'b4wave: <version>' line replaces 'b3wave: <version>'. The scaffold keeps the b3wave line and adds the b4wave line after it; I kept the scaffold (the base header lines stay a subset and exploop's early check '^b4wave: ' matches). The module contract also adds 'b4wave sha256: <12>'.",
+    "Lever headers are printed only when a lever is on (plan section 2.0 / shared changes), not 'on or off' as the rd-implement skill words it: the plan wins.",
+    "scripts/b4_dsp_slices.py was built in core because it is shared, every lever lists it, and it needs no lever code. CLI additions beyond the plan's list: --run_pair (the arm's merge/final, derived by default; needed for condition (d) and the both-readouts outcome escape of O3.2), --lever (default from config.yaml b4_levers; needed for the O3.1 non-target rule), --summary (O3.3 provisional -> final). --halves B adds a half-B view; the verdict stays on the full set.",
+    "The O3.1 under-fit thresholds are derived from B2f's train.log (ep1 TrainAcc - 2 = 85.36; 1.5 x last TrainLoss = 0.0752, matching plan section 2.0). 'Heldout bona recall down' uses half_B sim_heldout_v1 recall_bona at the final readout vs B2f.",
+    "The 'B4 wave' argparse group is empty until the lever parts add their literal b4.add_argument('--aug_...') calls (exploop greps train.py for flags). The supervisor's --help flag check needs the lever flags, so STATIC will only pass after the lever parts.",
+    "One scratch toy-trainer invocation, given a 60 s tool timeout and malformed args, was moved to the background by the harness. The guard blocked pkill, so it ran to completion: the levers-off path twice in $TMPDIR, exit 0, CPU only. It was rerun correctly in the foreground.",
+    "overfit --lever <approved id> prints SKIP and exits 0 (no lever has params_added); the guard treats this target as a GPU check."
+  ],
+  "needs_user": [],
+  "progress_note": "core DONE (rdloop/B4/impl/progress.md). Built: __init__ (version + module_sha256), augment.py (LeverSpec registry, RTCAugConfigB4, RTCAugmenterB4 with _post_dsp/_codec hooks and rng4, levers-off -> B3 object), data.py (B4 builders), train.py (build_parser + empty 'B4 wave' group, validate_b4_args, sha/version header, lever headers when on, config b4wave_version/module_sha256/b4_levers, per-class telemetry when on), checks.py (cpu 48/48 PASS; gpu/overfit targets; dsp_slices reproduces the plan tables), README, scripts/b4_dsp_slices.py (shared readout with O3.1-O3.3). pywebrtc_audio and webrtcvad already import in the rtc-sdd env. Left: lever parts apm_ns, dtx_gate, opus_plc. Each adds literal flags to train.py's B4 group (plan defaults: list defaults as lists), fields on RTCAugConfigB4, a register(LeverSpec(...)) block + _lever_<id> (+ _init_<id>) in augment.py, its DSP module with lazy imports + selftest, its check groups in CPU_GROUPS, and the README flag-table status."
+}

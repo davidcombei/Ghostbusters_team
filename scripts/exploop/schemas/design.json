@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "iter": {"type": "integer"},
+    "letter": {"type": "string"},
+    "track": {"type": "string", "description": "<prefix><letter>_<descriptive tokens>_s<seed>, unique"},
+    "lever_slug": {"type": "string", "description": "short id for registry ids, letters/digits/dots only"},
+    "kind": {"type": "string", "enum": ["config", "seed_repeat"]},
+    "base_label": {"type": "string"},
+    "change": {
+      "type": "object",
+      "properties": {
+        "set": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                "description": "flag -> values; a store_true flag -> []"},
+        "remove": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["set", "remove"]
+    },
+    "change_vs_ref": {"type": "string", "description": "one line, e.g. '+ --aug_codec_profiles random'"},
+    "rationale": {"type": "string"},
+    "hypothesis": {"type": "string"},
+    "predicted_signature": {"type": "string"},
+    "falsifier": {"type": "string"},
+    "eval_note": {"type": "string"},
+    "header_text": {"type": "string", "description": "launcher header paragraph: the change, evidence, what it targets"},
+    "expect": {"type": "array", "items": {"type": "string"}, "description": "regexes of stdout header lines proving the change took effect"},
+    "derivation": {"type": "string", "description": "python output for any derived value (e.g. ce_weights), else empty"},
+    "expected_hours": {"type": "number"}
+  },
+  "required": ["iter", "letter", "track", "lever_slug", "kind", "base_label", "change", "change_vs_ref", "rationale",
+               "hypothesis", "predicted_signature", "falsifier", "eval_note", "header_text", "expect", "expected_hours"]
+}

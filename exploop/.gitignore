@@ -1,0 +1,11 @@
+*/.supervisor.lock
+*/jobs/
+*/iter*/jobs/
+*/logs/
+*/events.jsonl
+*/iter*/*.a?.err
+*/iter*/*.prompt.a?.md
+*/iter*/*.a?.out.json
+*/summary.a?.err
+*/summary.prompt.a?.md
+*/summary.a?.out.json

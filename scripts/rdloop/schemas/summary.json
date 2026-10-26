@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "report_path": {"type": "string", "description": "FINAL_SUMMARY.md you wrote"},
+    "headline": {"type": "string"},
+    "status": {"type": "string", "enum": ["ready", "partial", "failed"]},
+    "levers": {"type": "array", "items": {"type": "object", "properties": {
+      "id": {"type": "string"}, "flags": {"type": "array", "items": {"type": "string"}},
+      "gap_ids": {"type": "array", "items": {"type": "string"}}, "sources": {"type": "array", "items": {"type": "string"}},
+      "regression": {"type": "string"}, "smoke": {"type": "string"}, "notes": {"type": "string"}},
+      "required": ["id", "flags", "gap_ids", "sources", "regression", "smoke", "notes"]}},
+    "dropped": {"type": "array", "items": {"type": "object", "properties": {
+      "id": {"type": "string"}, "stage": {"type": "string"}, "reason": {"type": "string"}}, "required": ["id", "stage", "reason"]}},
+    "recommended_wave": {"type": "object", "properties": {
+      "name": {"type": "string"}, "order": {"type": "array", "items": {"type": "string"}},
+      "expected_hours": {"type": "number"}, "notes": {"type": "string"}},
+      "required": ["name", "order", "expected_hours", "notes"]},
+    "owner_questions": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["report_path", "headline", "status", "levers", "dropped", "recommended_wave", "owner_questions", "risks"]
+}

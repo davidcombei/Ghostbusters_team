@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "report_path": {"type": "string"},
+    "headline": {"type": "string", "description": "one paragraph; numbers only as copied from files"},
+    "went_ok": {"type": "array", "items": {"type": "string"}},
+    "went_wrong": {"type": "array", "items": {"type": "string"}},
+    "largest_remaining_error": {"type": "string"},
+    "proposals": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "rank": {"type": "integer"},
+          "kind": {"type": "string", "enum": ["config", "seed_repeat"]},
+          "lever": {"type": "string"},
+          "change": {
+            "type": "object",
+            "properties": {
+              "set": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+              "remove": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["set", "remove"]
+          },
+          "targets": {"type": "string"},
+          "hypothesis": {"type": "string"},
+          "predicted_signature": {"type": "string"},
+          "falsifier": {"type": "string"}
+        },
+        "required": ["rank", "kind", "lever", "change", "targets", "hypothesis", "predicted_signature", "falsifier"]
+      }
+    }
+  },
+  "required": ["report_path", "headline", "went_ok", "went_wrong", "largest_remaining_error", "proposals"]
+}

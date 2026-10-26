@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "round": {"type": "integer"},
+    "report_path": {"type": "string", "description": "review/code_review_r<N>.md you wrote"},
+    "headline": {"type": "string"},
+    "verdict": {"type": "string", "enum": ["approve", "fix"], "description": "advisory; open blocker / major findings decide"},
+    "findings": {"type": "array", "items": {"type": "object", "properties": {
+      "id": {"type": "string", "description": "F<round>.<n>"},
+      "lever_id": {"type": "string", "description": "lever id, or '' for shared / core code"},
+      "severity": {"type": "string", "enum": ["blocker", "major", "minor"]},
+      "category": {"type": "string", "enum": ["plan", "default_off", "leakage", "isolation", "correctness", "numerics", "perf",
+                                              "test_gap", "exploop_compat", "other"]},
+      "file": {"type": "string"}, "line": {"type": "integer"},
+      "issue": {"type": "string"}, "fix": {"type": "string"}},
+      "required": ["id", "lever_id", "severity", "category", "file", "line", "issue", "fix"]}},
+    "resolved": {"type": "array", "items": {"type": "string"}, "description": "earlier finding ids now fixed"},
+    "plan_conformance": {"type": "array", "items": {"type": "object", "properties": {
+      "lever_id": {"type": "string"}, "ok": {"type": "boolean"}, "note": {"type": "string"}}, "required": ["lever_id", "ok", "note"]}}
+  },
+  "required": ["round", "report_path", "headline", "verdict", "findings", "resolved", "plan_conformance"]
+}

@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "report_path": "rdloop/B4/debate/proposal_v1.md",
+  "headline": "3 single-component, default-off platform-DSP levers on B2f, each a CPU stage between the noise stage and the codec, drawing from a separate RNG stream (rng4) at p=0.3, none changing the state_dict. (1) apm_ns: WebRTC NS (webrtc_noise_gain), aimed at heldout ns:afftdn bona recall 55.4/58.1 (n=74) vs 72.7 with no DSP. (2) dtx_gate: webrtcvad DTX gating with zero or LPC-CNG fill, aimed at the saturated core (136/133 of 213/210 noisy bona FA at p>=0.99) and the vad:cng/zero slices. (3) opus_plc: in-process libopus 1.3.1 via ctypes with Gilbert-Elliott loss + decoder PLC, no new package, aimed at the heldout plc slice 66.2/66.9 (n=130). All numbers were re-measured this session. The owner must pip-install webrtc-noise-gain and webrtcvad-wheels at the gate, otherwise only opus_plc can be approved.",
+  "base_label": "B2f",
+  "levers": [
+    {
+      "id": "apm_ns",
+      "title": "WebRTC noise suppression between the noise stage and the codec",
+      "category": "augmentation",
+      "flags": [
+        {
+          "name": "--aug_apm_p",
+          "type": "float",
+          "default": "0.0",
+          "choices": [],
+          "help": "Per-clip probability of one WebRTC NS pass (webrtc_noise_gain, AGC off). It runs after the acoustic stage and before the codec, drawn from the separate B4 RNG stream. 0 = off = B2f."
+        },
+        {
+          "name": "--aug_apm_ns_levels",
+          "type": "list",
+          "default": "1 2 3 4",
+          "choices": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "help": "WebRTC NS levels (webrtc_noise_gain noise_suppression_level) drawn uniformly per processed clip. Level 0 (off) is rejected. Read only when --aug_apm_p > 0."
+        }
+      ],
+      "default_equivalence": "With --aug_apm_p 0.0 and every other B4 flag at its default, build_rtc_augmenter_b4(args) returns build_rtc_augmenter_b3(args), the B2f/B3 augmenter object. No rng4 is created or drawn from, so the parent numpy RNG is consumed in exactly the B2f order. webrtc_noise_gain is never imported. describe(), meta_keys and the augmenter keys in config.yaml are b3wave's, and no lever header line is printed. --aug_apm_ns_levels is read only when p > 0. The model is untouched, so the forward pass and the checkpoint keys are identical.",
+      "mechanism": "With probability p, drawn from rng4 = default_rng([seed, pid, 0xB4]), the post-stage audio goes through one WebRTC NS pass with AGC off. This happens after the parent _stage and before the codec. The level is drawn from --aug_apm_ns_levels. A fresh AudioProcessor(0, level) runs per clip over 10 ms int16 frames, primed on the first 0.5 s, and the result goes through finalize(). The pass is independent of the class and of the acoustic stage, and it also runs on clips with no noise stage. Both classes then carry suppressor artefacts (residual or musical noise, spectral holes, onset attenuation), so these stop being a spoof cue. The parent RNG draws (stage, SNR, codec) are unchanged.",
+      "gap_ids": [
+        "G1"
+      ],
+      "idea_ids": [
+        "I1"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2607.17761",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://arxiv.org/abs/2603.14033",
+        "https://github.com/rhasspy/webrtc-noise-gain",
+        "https://github.com/strands-labs/pywebrtc-audio"
+      ],
+      "hypothesis": "B2f reads suppressor artefacts on noisy speech as synthesis: heldout ns:afftdn bona recall is 55.4/58.1 vs 72.7 with no DSP (computed, matches audit \u00a73.4). Training both classes through a different suppressor family (WebRTC NS levels 1-4) on 30 % of clips makes those artefacts class-neutral. The gain transfers to the unseen afftdn suppressor and, through the generic 'processed => spoof' bias, to other heldout processing.",
+      "predicted_signature": "Both readouts vs B2f, from scripts/b4_dsp_slices.py + metrics.json. Heldout ns:afftdn bona recall up >= 8 points (>= 6 of 74 clips), more than the no-DSP slice gain (n=128). ns:anlmdn down by no more than 4 clips. Heldout F1 up >= 1.0 (from 87.92/88.27) and heldout EER down. Expected WF1 delta +0.3 to +0.8. Must not move: clean F1 within 0.5 of 97.60/97.69; R_spoof within 0.5 on every set; matched F1 down by no more than 0.5 (from 91.22/91.24); ep1 TrainAcc within 2 of 87.36.",
+      "falsifier": "ns:afftdn gain < 4 points (<= 2 clips) AND heldout F1 delta < +0.5: NS exposure does not transfer to an unseen suppressor, drop. WF1 delta < -0.5 with matched F1 down by more than 1.0: losing raw-noise exposure (60 % -> 42 % of clips) costs more than it buys, drop (one lower-p retry, only if ns:afftdn moved). Shared under-fit: ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752 (1.5x B2f's 0.050114, train.log l.15), together with heldout bona recall down.",
+      "expect_regex": [
+        "^B4 APM NS: on p="
+      ],
+      "state_dict_change": false,
+      "params_added": false,
+      "dependencies": [
+        "webrtc_noise_gain"
+      ],
+      "files": [
+        "SLS_setup/b4wave/dsp_apm.py",
+        "SLS_setup/b4wave/augment.py",
+        "SLS_setup/b4wave/data.py",
+        "SLS_setup/b4wave/train.py",
+        "SLS_setup/b4wave/checks.py",
+        "SLS_setup/b4wave/README.md",
+        "scripts/b4_dsp_slices.py"
+      ],
+      "equivalence_test": "python -m b4wave.checks augmenter (CPU). (1) With all B4 flags at default, build_rtc_augmenter_b4 returns an RTCAugmenterB3: 200 synthetic clips without the codec plus 10 with it are bit-identical to build_rtc_augmenter_b3, with identical stage_counts and describe(). (2) A forced RTCAugmenterB4 with default fields is bit-identical too. (3) With apm_p=1.0, the parent stage:* counts over 200 clips equal the base's, so rng4 does not touch the parent stream. (4) 'webrtc_noise_gain' is not in sys.modules after the levers-off build. The supervisor regression also re-scores the B2f checkpoint (tol_logit 1e-4) and compares a levers-off micro-run with the b3wave micro-run.",
+      "cost": {
+        "est_loc": 160,
+        "extra_vram_gib": 0,
+        "epoch_time_frac": 1.05
+      },
+      "smoke": {
+        "minutes_est": 4.5,
+        "checks": [
+          "header matches ^B4 APM NS: on p=",
+          "sum(wrtc_ns1..4) / sum(codec:*) on the Epoch 1 B3 aug line within [0.25, 0.35] (0.3 +- 3 SD at N~758); fail_wrtc_ns = 0",
+          "per-class B4 line: rate within 0.3 +- 0.12 for bona and for spoof",
+          "dsp_apm.selftest passes: monotone energy drop per level, AGC off (tone RMS within +-3 dB), same length, finite",
+          "TrainLoss / DevLoss finite; rate within 1.3x S0; peak VRAM <= S0 + 0.1 GiB"
+        ]
+      },
+      "wave_lever": {
+        "set": {
+          "--aug_apm_p": [
+            "0.3"
+          ]
+        },
+        "coupled": [
+          [
+            "--aug_apm_p",
+            "--aug_apm_ns_levels"
+          ]
+        ],
+        "targets": "G1: heldout ns:afftdn bona recall (n=74, 55.4/58.1) and heldout F1 87.92/88.27; guard clean 97.60/97.69 and matched 91.22/91.24"
+      },
+      "risks": [
+        "webrtc-noise-gain may lack a cp312 wheel. Fallback: pywebrtc-audio behind the same wrtc_ns() signature (NS levels 0-3, mapped level-1); the dependency name changes at the gate",
+        "Transfer WebRTC NS -> afftdn is not shown in the literature (TFCL trains and tests on the same chain)",
+        "Matched (raw noise, no NS) may lose some exposure benefit: 42 % instead of 60 % of clips keep un-suppressed noise",
+        "Epoch-time factor is an estimate (package not installed); the smoke run measures it",
+        "Heldout ns:* becomes 'family seen, implementation unseen' and must be labelled so"
+      ]
+    },
+    {
+      "id": "dtx_gate",
+      "title": "WebRTC-VAD DTX gating with zero or LPC comfort-noise fill",
+      "category": "augmentation",
+      "flags": [
+        {
+          "name": "--aug_dtx_p",
+          "type": "float",
+          "default": "0.0",
+          "choices": [],
+          "help": "Per-clip probability of DTX gating with webrtcvad (mode 1-3, frame 10/20/30 ms, hangover 40-200 ms) after the NS slot and before the codec, drawn from the separate B4 RNG stream. 0 = off = B2f."
+        },
+        {
+          "name": "--aug_dtx_fill",
+          "type": "choice",
+          "default": "mix",
+          "choices": [
+            "mix",
+            "zero",
+            "cng"
+          ],
+          "help": "Fill of the gated frames: digital zeros, LPC-shaped comfort noise at the gated content's level (-6..0 dB), or a 50/50 per-clip mix. Read only when --aug_dtx_p > 0."
+        }
+      ],
+      "default_equivalence": "With --aug_dtx_p 0.0 and every other B4 flag at its default, build_rtc_augmenter_b4 returns the B3 augmenter object. There are no rng4 draws, webrtcvad is never imported, and --aug_dtx_fill is read only when p > 0. describe(), meta_keys and the config.yaml keys are b3wave's, and no header line is printed. The model is untouched, so the forward pass and the state_dict keys are identical.",
+      "mechanism": "With probability p (rng4), the clip goes through webrtcvad.Vad(mode) frame by frame, with mode in {1,2,3} and frame in {10,20,30} ms drawn per clip. The speech mask is dilated forward by a hangover of U(40,200) ms. Non-speech frames are filled with exact zeros or with order-10 LPC-shaped comfort noise (rng4 white noise through lfilter, RMS = gated content RMS x 10^(U(-6,0)/20), floor -70 dBFS), with 5 ms raised-cosine cross-fades. The length is unchanged. The gate is class-independent and runs after NS, before the codec. It differs from the reserved sim_ops.vad_gate (energy-percentile VAD, white-noise fill). The op name is wrtc_dtx.",
+      "gap_ids": [
+        "G3",
+        "G1"
+      ],
+      "idea_ids": [
+        "I2"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2309.11827",
+        "https://arxiv.org/abs/2309.11827",
+        "https://arxiv.org/abs/2106.12914",
+        "https://arxiv.org/html/2607.17761",
+        "https://github.com/wiseman/py-webrtcvad"
+      ],
+      "hypothesis": "Part of the saturated core is 'non-speech / gated content => spoof': sil_only and noise_only bona probes are 100 % spoof (mean dP +0.89), 136/133 of the noisy bona FA sit at p >= 0.99, and heldout vad:cng bona recall is 55.9/61.8. Class-independent DTX gating on 30 % of clips makes gated pauses class-neutral, the RTC analogue of SIL's Sil-mask. The VAD-gated heldout bona and the saturated noisy FA then shrink, at no cost on clean.",
+      "predicted_signature": "Both readouts vs B2f: vad:cng + vad:zero bona recall (n=73) up >= 6 clips. Saturated noisy bona FA (p >= 0.99, matched + heldout half B) down >= 10 from 136/133, and their share of noisy FA below 63.8 %. probe_padded bona flip not above 3.74/5.35 %. sil_only bona mean dP below +0.8929/+0.8985 (direction only). Expected WF1 delta 0 to +0.6. Must not move: clean F1 within 0.5 of 97.60/97.69; noisy spoof misses (24/23) up by at most 8; R_spoof within 0.5.",
+      "falsifier": "VAD-slice gain < 3 clips AND saturated FA within +-5 of 136/133: gated silence does not drive the core, drop. Clean F1 down by more than 0.5, or noisy spoof misses up by more than 8: the gating pattern carries class information, drop. Shared under-fit: ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752, together with heldout bona recall down.",
+      "expect_regex": [
+        "^B4 DTX gate: on p="
+      ],
+      "state_dict_change": false,
+      "params_added": false,
+      "dependencies": [
+        "webrtcvad"
+      ],
+      "files": [
+        "SLS_setup/b4wave/dsp_dtx.py",
+        "SLS_setup/b4wave/augment.py",
+        "SLS_setup/b4wave/data.py",
+        "SLS_setup/b4wave/train.py",
+        "SLS_setup/b4wave/checks.py",
+        "SLS_setup/b4wave/README.md",
+        "scripts/b4_dsp_slices.py"
+      ],
+      "equivalence_test": "python -m b4wave.checks augmenter: items 1, 2 and 4 of apm_ns, with webrtcvad not imported, plus item 3 with dtx_p=1.0 (parent stage counts identical to the base). check_dtx: the selftest on a synthetic tone-burst + silence clip (gated fraction within bounds, zero frames exactly 0, CNG within +-3 dB of target, an all-tone clip unchanged, output length == input length). checks dtx_balance prints the realised gated fraction per class on 200+200 training clips.",
+      "cost": {
+        "est_loc": 200,
+        "extra_vram_gib": 0,
+        "epoch_time_frac": 1.03
+      },
+      "smoke": {
+        "minutes_est": 4.5,
+        "checks": [
+          "header matches ^B4 DTX gate: on p=",
+          "sum(wrtc_dtx_*) / sum(codec:*) within [0.25, 0.35]; fail_wrtc_dtx = 0",
+          "at least one non-dtx_g0 gated-fraction bin > 0 (the VAD really gates training audio)",
+          "per-class B4 line shows both classes in the gated bins",
+          "finite losses; rate within 1.3x S0"
+        ]
+      },
+      "wave_lever": {
+        "set": {
+          "--aug_dtx_p": [
+            "0.3"
+          ]
+        },
+        "coupled": [
+          [
+            "--aug_dtx_p",
+            "--aug_dtx_fill"
+          ]
+        ],
+        "targets": "G3: saturated noisy bona FA (136/133 at p>=0.99) and heldout vad:cng/vad:zero bona (n=73); guard clean F1 and noisy spoof misses (24/23)"
+      },
+      "risks": [
+        "Class-dependent realised gating. Measured proxy: the share of frames more than 30 dB below the p95 frame energy is bona 0.205/0.165 vs spoof 0.153/0.155 (offline/online), so a possible 'gated => bona' shortcut. Watched by checks dtx_balance, per-class telemetry and the spoof-miss guard",
+        "Mixed literature: Sil-mask hurts SENet/AASIST on LA19 unseen attacks",
+        "Small n: the VAD slices hold 73 bona clips, so the saturated-core count carries most of the mechanism evidence",
+        "Modes 2-3 can gate low-SNR speech (realistic front clipping; counted in dtx_g40p)",
+        "Needs pip install webrtcvad-wheels (import webrtcvad)"
+      ]
+    },
+    {
+      "id": "opus_plc",
+      "title": "In-process libopus round trip with bursty packet loss and decoder PLC",
+      "category": "augmentation",
+      "flags": [
+        {
+          "name": "--aug_opus_plc_p",
+          "type": "float",
+          "default": "0.0",
+          "choices": [],
+          "help": "Probability (separate B4 RNG stream) that a codec call takes the in-process libopus path with Gilbert-Elliott packet loss and decoder PLC instead of ffmpeg, with the same app/bitrate/cutoff/frame draws. 0 = off = B2f."
+        },
+        {
+          "name": "--aug_opus_loss",
+          "type": "list",
+          "default": "0.02 0.15",
+          "choices": [],
+          "help": "Range (lo hi) of the per-clip target packet-loss rate, 0 <= lo <= hi < 0.5. '0 0' = the in-process codec without loss (attribution control). Read only when --aug_opus_plc_p > 0."
+        },
+        {
+          "name": "--aug_opus_burst",
+          "type": "list",
+          "default": "1.0 4.0",
+          "choices": [],
+          "help": "Range (lo hi) of the mean loss-burst length in packets, 1 <= lo <= hi. Read only when --aug_opus_plc_p > 0."
+        }
+      ],
+      "default_equivalence": "With --aug_opus_plc_p 0.0 and every other B4 flag at its default, build_rtc_augmenter_b4 returns the B3 augmenter object, so every codec call is the original utils.rtc_augment.codecs_augm with the same parent draws. libopus is never loaded through ctypes, and the loss/burst flags are read only when p > 0. describe(), meta_keys and config keys are unchanged, and no header line is printed. The model is untouched.",
+      "mechanism": "The codec stage still fires on the parent draw (p=1.0 in B2f). For a clip picked by rng4, draw_codec_params(rng) makes the parent's app/kbps/cutoff/frame draws in exactly codecs_augm's order. A ctypes-bound system libopus 1.3.1 encoder (16 kHz mono, same bitrate, max bandwidth from the cutoff 4000/6000/8000 -> NB/MB/WB, same frame and application, VBR on, complexity 10) encodes frame by frame. A Gilbert-Elliott mask drops packets: target loss L ~ U(loss), mean burst B ~ U(burst), p_bg = 1/B, p_gb = L*p_bg/(1-L). The decoder conceals each lost packet through the NULL-payload PLC call. The look-ahead is trimmed and the output padded to the input length. Clips not picked call the original codecs_augm unchanged. App profiles stay fixed (unlike B3d), and in-band FEC is excluded. The op name is opus_plc.",
+      "gap_ids": [
+        "G1",
+        "G2"
+      ],
+      "idea_ids": [
+        "I3"
+      ],
+      "sources": [
+        "https://arxiv.org/html/2504.12423v2",
+        "https://arxiv.org/html/2604.23742v1",
+        "https://github.com/orion-labs/opuslib",
+        "https://github.com/orion-labs/opuslib/blob/master/opuslib/classes.py",
+        "https://arxiv.org/abs/2107.12018"
+      ],
+      "hypothesis": "Concealment artefacts (pitch-continued, faded or smeared frames) are read as synthesis. Heldout loss + repeat-PLC bona recall is 66.2/66.9 (n=130) vs 72.7 with no DSP, and B2f never trained on a dropped packet. Exposing both classes to libopus PLC under bursty loss on 30 % of codec calls makes concealment class-neutral. The gain transfers to heldout's repeat-PLC (a different concealment after non-Opus codecs) without hurting matched, which has no loss.",
+      "predicted_signature": "Both readouts vs B2f: heldout plc bona recall up >= 5 points (>= 7 of 130 clips), more than the no-DSP slice gain. Heldout F1 up >= 0.8. Matched per-codec bona recall within +-3 points of qq 61.62/66.67 and wechat 65.38/71.15. Expected WF1 delta +0.2 to +0.6. Must not move: clean F1 within 0.5; R_spoof within 0.5; ep1 TrainAcc within 2 of 87.36.",
+      "falsifier": "plc gain < 2 points (<= 2 clips) AND heldout F1 delta < +0.5: libopus PLC does not transfer to unseen concealment, drop. WF1 delta < -0.5 with ep1 TrainAcc < 85.36 or ep8 TrainLoss > 0.0752: a B3d-type codec-side under-fit, drop. Attribution control, pre-registered: if the arm is positive, the coupled control '--aug_opus_plc_p 0.3 --aug_opus_loss 0 0' runs before promotion. If it alone gives >= half of the arm's WF1 gain, the gain is credited to the decoder path, not PLC.",
+      "expect_regex": [
+        "^B4 Opus PLC: on p="
+      ],
+      "state_dict_change": false,
+      "params_added": false,
+      "dependencies": [],
+      "files": [
+        "SLS_setup/b4wave/opus_plc.py",
+        "SLS_setup/b4wave/augment.py",
+        "SLS_setup/b4wave/data.py",
+        "SLS_setup/b4wave/train.py",
+        "SLS_setup/b4wave/checks.py",
+        "SLS_setup/b4wave/README.md",
+        "scripts/b4_dsp_slices.py"
+      ],
+      "equivalence_test": "python -m b4wave.checks augmenter: items 1, 2 and 4 of apm_ns, with no libopus ctypes handle created, plus item 3 with opus_plc_p=1.0 and the codec on (parent stage:* AND codec:<app> counts equal the base). codec_draw_order: from the same start state, draw_codec_params leaves rng.bit_generator.state exactly where a real codecs_augm call leaves it, and ffmpeg_opus on pre-drawn parameters is bit-identical to codecs_augm. Attribution (zero loss), on 3 training clips x 7 app profiles: aligned SNR(ffmpeg, in-process) >= max(12 dB, SNR(ffmpeg, input) + 2 dB). This session measured 17.4-18.3 dB vs 6.7-14.1 dB.",
+      "cost": {
+        "est_loc": 260,
+        "extra_vram_gib": 0,
+        "epoch_time_frac": 1.02
+      },
+      "smoke": {
+        "minutes_est": 4.5,
+        "checks": [
+          "header matches ^B4 Opus PLC: on p=",
+          "opus_plc / sum(codec:*) within [0.25, 0.35]; fail_opus_plc = 0",
+          "every plc_l0_5 / plc_l5_10 / plc_l10p bin > 0",
+          "codec app counts still cover all 7 apps",
+          "opus_plc.selftest passes (ctl set/get round trip, a concealed gap is not all-zero, lengths)",
+          "finite losses; rate within 1.3x S0"
+        ]
+      },
+      "wave_lever": {
+        "set": {
+          "--aug_opus_plc_p": [
+            "0.3"
+          ]
+        },
+        "coupled": [
+          [
+            "--aug_opus_plc_p",
+            "--aug_opus_loss",
+            "--aug_opus_burst"
+          ]
+        ],
+        "targets": "G1: heldout plc bona recall (n=130, 66.2/66.9) and heldout F1; G2 guard: matched qq/wechat bona recall unchanged"
+      },
+      "risks": [
+        "System libopus can be wiped by a container restart together with ffmpeg; selftest raises at start-up instead of passing through silently (optional: conda-forge libopus in rtc-sdd)",
+        "Variadic opus_encoder_ctl via ctypes; guarded by the set/get round trip in selftest (passed this session)",
+        "Transfer from libopus PLC to repeat-PLC after non-Opus codecs is unproven (ADD-C's gain is in-distribution)",
+        "The decoder path differs slightly from ffmpeg (aligned SNR 17-18 dB, lag 0 vs 69-70 samples); bounded by the attribution check and the control arm",
+        "40/60 ms frames (dingtalk/telegram) conceal more audio per lost packet"
+      ]
+    }
+  ],
+  "shared_changes": [
+    {
+      "what": "RTCAugConfigB4(RTCAugConfigB3) with the 7 new fields and RTCAugmenterB4(RTCAugmenterB3). The B4 __call__ mirrors the parent: len<16 return -> rng=_get_rng() -> _stage -> _post_dsp (wrtc_ns -> wrtc_dtx) -> codec branch (codecs_augm, codecs_augm_random, or the PLC split). Also: a separate rng4 = default_rng([seed, pid, 0xB4]) re-created on a pid change; B4 meta_keys/describe suffixes only for active levers; start-up selftests; fail_* counters; assert_training_ops for wrtc_ns/wrtc_dtx/opus_plc. build_rtc_augmenter_b4 returns build_rtc_augmenter_b3(args) unchanged when every B4 flag is at its default.",
+      "files": [
+        "SLS_setup/b4wave/augment.py"
+      ]
+    },
+    {
+      "what": "build_augmenter_b4 / build_dataset_b4: a copy-adapt of the b3wave builders with the B4 factory. Dev uses the original SpoofAudioDataset; train reuses SpoofAudioDatasetB3 (meta count-vector telemetry).",
+      "files": [
+        "SLS_setup/b4wave/data.py"
+      ]
+    },
+    {
+      "what": "Trainer (scaffolded copy of b3wave/train.py): a 'B4 wave' argparse group with value checks; build_dataset_b4; lever header lines only when on; 'b4wave: <version>' line; config.yaml b4wave_version + b4_levers; B4 keys in the existing 'Epoch N B3 aug' line; meta summed per label, logged as 'Epoch N B4 aug-by-class' and metrics.jsonl['b4'] when a lever is on.",
+      "files": [
+        "SLS_setup/b4wave/train.py"
+      ]
+    },
+    {
+      "what": "Checks: augmenter equivalence (items 1-4 for every lever), codec_draw_order, reserve_names, apm, dtx, dtx_balance, opus_plc incl. zero-loss attribution, timing, dsp_slices (reproduces the B2f slice table); model/optim kept for the regression base_checks. In 'all', a lever check whose package is not importable prints SKIP; invoked by name it fails.",
+      "files": [
+        "SLS_setup/b4wave/checks.py"
+      ]
+    },
+    {
+      "what": "README: flag table, reproduction statement, telemetry keys, dependency install lines.",
+      "files": [
+        "SLS_setup/b4wave/README.md"
+      ]
+    },
+    {
+      "what": "Read-only mechanism readout: half-B heldout bona recall / FA per dsp_chain stage (seen-family vs unseen labels), matched+heldout saturated FA (p>=0.99), noisy spoof misses, noise-induced FA (AUD \u00a73.3), probe dP/flip rows, deltas in clips vs a --ref readout. Reads only scores/*.txt, probe_report.json and data/dev_noisy_sim/*/meta.csv.",
+      "files": [
+        "scripts/b4_dsp_slices.py"
+      ]
+    }
+  ],
+  "eval_impact": {
+    "state_dict_change": false,
+    "new_profile": false,
+    "scripts": [
+      "scripts/b4_dsp_slices.py"
+    ]
+  },
+  "responses": [],
+  "alternatives_response": [],
+  "dropped": []
+}

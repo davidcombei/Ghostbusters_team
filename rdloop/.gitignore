@@ -1,0 +1,10 @@
+*/runs/
+*/isolation/*.tar.gz
+*/jobs/
+*/.supervisor.lock
+*/logs/
+*/events.jsonl
+*/steps/*.err
+*/steps/*.prompt.md
+*/steps/*.out.json
+*/tests/**/scores/

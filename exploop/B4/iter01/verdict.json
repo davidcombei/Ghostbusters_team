@@ -1,0 +1,49 @@
+{
+  "merge": {
+    "run": 92.55227928958006,
+    "base": 91.97880641320396,
+    "delta": 0.5734728763761012,
+    "ci_low": -0.008530328907396795,
+    "ci_high": 1.1655467607844505,
+    "clean_drop": -0.12025151349281771,
+    "new_best": false,
+    "decision": "revisit",
+    "verdict": "above band, CI includes 0",
+    "readout": "SLS_setup/exp/B4a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_s1234_epoch8_bs16_20261018150134/local_eval/merge_top5",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5",
+    "base_label": "B2f-top5",
+    "label": "B4a-top5"
+  },
+  "final": {
+    "run": 93.15279926126122,
+    "base": 92.13685698540242,
+    "delta": 1.015942275858805,
+    "ci_low": 0.4293057843536239,
+    "ci_high": 1.6017211297401048,
+    "clean_drop": -0.3522567851530738,
+    "new_best": false,
+    "decision": "promote",
+    "verdict": "positive",
+    "readout": "SLS_setup/exp/B4a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_s1234_epoch8_bs16_20261018150134/local_eval/epoch_8",
+    "base_readout": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8",
+    "base_label": "B2f-ep8",
+    "label": "B4a-ep8"
+  },
+  "objective": "half_B.wf1.wf1",
+  "rules": {
+    "new_best_delta": 0.0,
+    "band": 0.5,
+    "promote": {
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "positive": {
+      "delta_gt": 0.5,
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "keep_best": true
+  },
+  "written": "2026-10-18 19:42:12",
+  "corrected": "decision recomputed 2026-10-18 after the keep_best fix: the original 'drop' came from new_best_delta=100 (screen), which made new_best always false"
+}

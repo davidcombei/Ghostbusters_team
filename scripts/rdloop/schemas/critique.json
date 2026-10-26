@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {"type": "integer", "description": "the proposal version you critiqued"},
+    "report_path": {"type": "string", "description": "debate/critique_v<N>.md you wrote"},
+    "headline": {"type": "string"},
+    "objections": {
+      "type": "array",
+      "description": "NEW objections, and re-raised ones under their old id",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "O<version>.<n> for new ones; the old id when re-raising"},
+          "lever_id": {"type": "string", "description": "lever id, or '' for a plan-level objection"},
+          "severity": {"type": "string", "enum": ["blocker", "major", "minor"]},
+          "category": {"type": "string", "enum": ["evidence", "leakage", "rules", "isolation", "equivalence", "feasibility",
+                                                  "budget", "vram", "confound", "eval", "scope", "other"]},
+          "claim": {"type": "string"},
+          "evidence": {"type": "array", "items": {"type": "string"}, "description": "file:line, URL or command output; a blocker without evidence is downgraded"},
+          "required_change": {"type": "string"}
+        },
+        "required": ["id", "lever_id", "severity", "category", "claim", "evidence", "required_change"]
+      }
+    },
+    "resolved": {"type": "array", "items": {"type": "string"}, "description": "ids of earlier objections the revision resolved"},
+    "still_open": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "note": {"type": "string"}},
+                                             "required": ["id", "note"]}},
+    "per_lever": {"type": "array", "items": {"type": "object", "properties": {
+      "lever_id": {"type": "string"}, "stance": {"type": "string", "enum": ["keep", "modify", "drop"]}, "note": {"type": "string"}},
+      "required": ["lever_id", "stance", "note"]}},
+    "alternatives": {"type": "array", "items": {"type": "object", "properties": {
+      "idea": {"type": "string"}, "why": {"type": "string"}, "idea_ids": {"type": "array", "items": {"type": "string"}}},
+      "required": ["idea", "why", "idea_ids"]}},
+    "citation_checks": {"type": "array", "items": {"type": "object", "properties": {
+      "url": {"type": "string"}, "ok": {"type": "boolean"}, "note": {"type": "string"}}, "required": ["url", "ok", "note"]}},
+    "verdict": {"type": "string", "enum": ["agree", "revise"], "description": "advisory; the supervisor decides from the open blockers / majors"}
+  },
+  "required": ["version", "report_path", "headline", "objections", "resolved", "still_open", "per_lever", "alternatives",
+               "citation_checks", "verdict"]
+}

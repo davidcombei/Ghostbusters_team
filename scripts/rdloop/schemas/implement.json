@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "part": {"type": "string", "description": "core, a lever id, or fix"},
+    "headline": {"type": "string"},
+    "files": {"type": "array", "items": {"type": "object", "properties": {"path": {"type": "string"}, "purpose": {"type": "string"}},
+                                        "required": ["path", "purpose"]}},
+    "levers": {"type": "array", "items": {"type": "object", "properties": {
+      "id": {"type": "string"},
+      "flags": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "default": {"type": "string"}},
+                                          "required": ["name", "default"]}},
+      "implemented": {"type": "boolean"},
+      "header_regex": {"type": "array", "items": {"type": "string"}, "description": "stdout lines the trainer prints when the lever is on"},
+      "where": {"type": "array", "items": {"type": "string"}, "description": "file:function of the change"},
+      "deviations": {"type": "string", "description": "differences from the approved plan and why ('' if none)"}},
+      "required": ["id", "flags", "implemented", "header_regex", "where", "deviations"]}},
+    "tests": {"type": "array", "items": {"type": "object", "properties": {
+      "name": {"type": "string"}, "command": {"type": "string"}, "device": {"type": "string", "enum": ["cpu", "gpu"]}, "what": {"type": "string"}},
+      "required": ["name", "command", "device", "what"]}},
+    "cpu_results": {"type": "array", "items": {"type": "object", "properties": {
+      "command": {"type": "string"}, "rc": {"type": "integer"}, "summary": {"type": "string"}}, "required": ["command", "rc", "summary"]}},
+    "equivalence_argument": {"type": "string"},
+    "addressed": {"type": "array", "items": {"type": "string"}, "description": "fix only: finding / failure ids addressed"},
+    "open_issues": {"type": "array", "items": {"type": "string"}},
+    "needs_user": {"type": "array", "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}},
+                                             "required": ["what", "why"]}},
+    "progress_note": {"type": "string", "description": "what is done / left (also kept in impl/progress.md)"}
+  },
+  "required": ["part", "headline", "files", "levers", "tests", "cpu_results", "equivalence_argument", "addressed", "open_issues",
+               "needs_user", "progress_note"]
+}

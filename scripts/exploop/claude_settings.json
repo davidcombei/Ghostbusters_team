@@ -1,0 +1,71 @@
+{
+  "$comment": "Passed with --settings ONLY to the headless exploop steps (exp-designer / exp-analyst); interactive sessions are unaffected. Deny rules merge with project/user settings and cannot be overridden by an allow. Paths are absolute (//...) because a leading / would be relative to this file's directory. guard_hook.py is a second layer (deny rules are not a security boundary) and the supervisor diffs protected files before/after every step.",
+  "permissions": {
+    "deny": [
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/SLS_setup/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/scripts/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/configs/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/data/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/.claude/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/exploop/**)",
+      "Edit(//root/repos/rtc-sdd/Ghostbusters_team/docs/experiment_log.csv)",
+      "Edit(//root/.claude/**)",
+      "Edit(//mnt/**)",
+      "Read(//root/repos/rtc-sdd/Ghostbusters_team/SLS_setup/exp/**/model_merging_*/scores.txt)",
+      "Read(//mnt/paml-research/RTCFake/data/progress.txt)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git clean:*)",
+      "Bash(git stash:*)",
+      "Bash(git rm:*)",
+      "Bash(git mv:*)",
+      "Bash(git rebase:*)",
+      "Bash(git merge:*)",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(mv:*)",
+      "Bash(unlink:*)",
+      "Bash(shred:*)",
+      "Bash(truncate:*)",
+      "Bash(pip:*)",
+      "Bash(pip3:*)",
+      "Bash(conda:*)",
+      "Bash(mamba:*)",
+      "Bash(apt:*)",
+      "Bash(apt-get:*)",
+      "Bash(dpkg:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(killall:*)",
+      "Bash(sudo:*)",
+      "Bash(claude:*)",
+      "Bash(nohup:*)",
+      "Bash(setsid:*)",
+      "Agent",
+      "WebFetch",
+      "WebSearch",
+      "CronCreate",
+      "CronDelete",
+      "RemoteTrigger",
+      "ScheduleWakeup",
+      "PushNotification",
+      "Workflow",
+      "EnterWorktree",
+      "SendMessage"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {"type": "command", "command": "python3 -I /root/repos/rtc-sdd/Ghostbusters_team/scripts/exploop/guard_hook.py", "timeout": 20}
+        ]
+      }
+    ]
+  }
+}

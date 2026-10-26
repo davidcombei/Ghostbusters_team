@@ -1,0 +1,9 @@
+{
+  "name": "rdloop-view",
+  "version": "0.1.0",
+  "description": "Live view of the running rdloop research cycle: /rdloop pane (phase strip, what each agent of the team is doing, debate rounds and open objections, levers, regression / smoke checks, events), drill-down per agent, toasts on progress and notifications when the owner is needed",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Ghostbusters_team"
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "report_path": "rdloop/B4/debate/critique_v1.md",
+  "headline": "A sound plan with no blockers and two majors. (1) The webrtc-noise-gain binding always enables the WebRTC high-pass filter, so apm_ns is NS + HPF, not NS alone; switch to pywebrtc-audio's standalone NoiseSuppressor. (2) The DSP-slice mechanism readout uses a control confounded with source: the no-DSP bona slice is 124 of 128 online clips, while NS/AGC/VAD slices are 100 % offline. Some predicted gains (plc \u2265 7 clips, VAD \u2265 6) match or exceed the whole stage-specific deficit, and the falsifier bands sit inside the merge-vs-final noise of the same run. Fix: same-source difference-in-differences with paired flip counts. The rest are minors.",
+  "objections": [
+    {
+      "id": "O1.1",
+      "lever_id": "apm_ns",
+      "severity": "major",
+      "category": "confound",
+      "claim": "webrtc-noise-gain always enables the APM high-pass filter (only NS and AGC are optional), so the lever is NS + HPF on 30 % of clips. That is two components, contrary to the plan's 'NS alone is one component'. A low-band cut can carry class information (rumble / hum in bona vs clean TTS), and with this backend no control can separate it.",
+      "evidence": [
+        "https://raw.githubusercontent.com/OHF-Voice/webrtc-noise-gain/master/src/webrtc_noise_gain_cpp.cpp: 'self->audio_config.high_pass_filter.enabled = true;' is set unconditionally; NS / AGC only if > 0",
+        "rdloop/B4/debate/proposal_v1.md:189 ('NS alone is one component'), :216 ('prints the < 100 Hz energy change, in case the binding runs the APM high-pass filter')",
+        "https://github.com/strands-labs/pywebrtc-audio: standalone NoiseSuppressor(sample_rate, num_channels, level 0-3 = 6/12/18/21 dB); HPF only as an AudioProcessor flag, default off; Python 3.10-3.14 wheels"
+      ],
+      "required_change": "Make pywebrtc-audio's standalone NoiseSuppressor the primary backend (NS only). Map levels 0-3 to WNG 1-4 one-to-one, define --aug_apm_ns_levels backend-neutrally, and update the dependency import name at the gate. Make check_apm assert (not print) that the <100 Hz band is not cut beyond the NS gain. If WNG stays the backend, rename the component to 'HPF + NS' and pre-register an HPF-only attribution control."
+    },
+    {
+      "id": "O1.2",
+      "lever_id": "",
+      "severity": "major",
+      "category": "eval",
+      "claim": "The slice readout cannot attribute gains to the levers. (a) Heldout NS/AGC/VAD/BW run only on offline sources, so the no-DSP control (n=128) is 124 online + 4 offline; 'afftdn gain > no-DSP gain' and the VAD gain compare offline against online, and a generic offline shift satisfies them. (b) Slices overlap: ns:afftdn has 8 exclusive bona clips, and 42/74 co-occur with bw, 26/74 with plc. (c) Against same-source controls the stage-attributable deficit is about 6 clips for plc (merge and final) and about 7/4 clips for VAD, so the predicted plc \u2265 7/130 and VAD \u2265 6/73 need a non-specific gain. Merge vs final of the same run already differ by 4 discordant clips on afftdn and on VAD, so the falsifier bands (\u2264 2 / < 3 clips) are inside within-run noise.",
+      "evidence": [
+        "computed (read-only join of RUN local_eval/{merge_top5,epoch_8}/scores/sim_heldout_v1.txt with data/dev_noisy_sim/heldout_v1/meta.csv, half B bona): offline+dsp 197, offline none 4, online+dsp 66, online none 124; offline with NS n=146 recall 66.4/67.1 vs without NS n=55 76.4/74.5; offline with VAD n=73 63.0/65.8 vs without n=128 72.7/71.1; online plc n=66 65.2/68.2 vs online no-plc n=124 71.8/71.8; offline plc n=64 67.2/65.6 vs no-plc n=137 70.1/70.8; ns:afftdn exclusive n=8; merge->final discordant afftdn 3 fixed/1 broken, vad 3/1, plc 2/1",
+        "scripts/build_dev_noisy_sim.py:189 (NS/AGC/VAD/BW only if src == offline), :199 (PLC on all clips)",
+        "rdloop/B4/debate/proposal_v1.md:238, :249, :385, :397, :584"
+      ],
+      "required_change": "b4_dsp_slices.py and the signatures: (1) use same-source controls: apm_ns = offline with NS vs offline without NS (146/55) plus afftdn vs anlmdn; dtx_gate = offline with VAD vs without (73/128); opus_plc = within-src plc vs no-plc, online half primary. Report difference-in-differences in clips. (2) Print paired fixed/broken counts with an exact sign/McNemar p, and the B2f merge-vs-final discordance as the noise reference. (3) Restate thresholds as a fraction of the stage-attributable deficit, and falsifiers as DiD \u2264 0 or within that noise. (4) Report exclusive-stage counts. (5) dtx_gate: stratify saturated FA by the eval clip's non-speech fraction and predict the drop concentrates in the high tertile."
+    },
+    {
+      "id": "O1.3",
+      "lever_id": "opus_plc",
+      "severity": "minor",
+      "category": "scope",
+      "claim": "G2 is listed as a target, but matched has no loss and the lever's matched prediction is 'unchanged'; nothing predicts a G2 gain.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v1.md:44, :55, :586-587; proposal_v1.json opus_plc gap_ids [G1, G2]"
+      ],
+      "required_change": "Drop G2 from gap_ids, or state a matched-side prediction with a falsifier."
+    },
+    {
+      "id": "O1.4",
+      "lever_id": "opus_plc",
+      "severity": "minor",
+      "category": "leakage",
+      "claim": "The loss range is justified by the heldout realised mean (0.085 = heldout 0.085), an eval-set statistic. The GE loss pattern is the reserved sim_ops.packet_loss family with overlapping parameters (burst 1.4-3.3 vs U(1,4)). The range itself came from ADD-C via the scout, so the problem is the stated rationale and the G6 labelling.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v1.md:522-524",
+        "SLS_setup/utils/sim_ops.py:115-135 (l.122 p_gb U(0.01,0.08), p_bg U(0.3,0.7))"
+      ],
+      "required_change": "Justify the range from ADD-C (PLR 0/1/5/10/20 %) or RTC measurements, not from heldout meta.csv. Label heldout plc as 'loss-pattern family seen (GE); codec + concealment unseen'."
+    },
+    {
+      "id": "O1.5",
+      "lever_id": "apm_ns",
+      "severity": "minor",
+      "category": "confound",
+      "claim": "NS's realised effect is likely class-asymmetric (a bona noise floor is removed; TTS has little to remove). The plan measures class asymmetry for DTX only, and the per-class telemetry counts application, not effect.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v1.md:150-153, :377-378"
+      ],
+      "required_change": "Add checks apm_balance: realised dB removed per class on 200+200 training clips (with and without a noise stage), and name a guard."
+    },
+    {
+      "id": "O1.6",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "evidence",
+      "claim": "'B2f never trained on any suppressor' is overstated: RTCFake train includes online clips sent through Zoom and QQ (their NS/VAD/codec), though on clean input.",
+      "evidence": [
+        "https://arxiv.org/html/2604.23742v1 (fetched): training platforms P01-P02 = Zoom, QQ; online training clips 6,890 real / 30,235 fake",
+        "rdloop/B4/debate/proposal_v1.md:164"
+      ],
+      "required_change": "Rephrase as 'never noisy speech through a suppressor and no simulated DSP'."
+    },
+    {
+      "id": "O1.7",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "budget",
+      "claim": "Cost estimates use wall-clock times under load. The container has a 16-CPU cgroup quota for 64 loader workers, about \u2264 0.39 CPU-s per clip at B2f's ~41 clips/s if loader-bound. Whether B2f is loader-bound is unknown, so the 1.02-1.05 factors are unverified, and the 758-clip smoke rate is dominated by start-up.",
+      "evidence": [
+        "/sys/fs/cgroup/cpu.max = '1600000 100000' (command output)",
+        "SLS_setup/exp/B2f_.../logs/train.log l.1-15 (~30.5 min/epoch, 75,785 clips)",
+        "rdloop/B4/debate/proposal_v1.md:272-279"
+      ],
+      "required_change": "checks timing reports CPU-seconds per clip (process_time) for the full B2f path and for each new stage, plus a projected epoch factor assuming a saturated loader."
+    },
+    {
+      "id": "O1.8",
+      "lever_id": "",
+      "severity": "minor",
+      "category": "scope",
+      "claim": "The \u00a75 combined arm (all signature-positive levers on) is a multi-factor change against B2f, against the wave's one-factor rule.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v1.md:676-678"
+      ],
+      "required_change": "Frame it as a recommendation to the owner / exp-designer (coupled group or a separate wave), not a pre-registered arm."
+    },
+    {
+      "id": "O1.9",
+      "lever_id": "opus_plc",
+      "severity": "minor",
+      "category": "confound",
+      "claim": "The in-process libopus decode at 16 kHz differs from B2f's ffmpeg native decode at 48 kHz plus resample (aligned SNR 17-18 dB): a second component, controlled only if the arm is positive. Per-clip libopus states in persistent workers must be freed.",
+      "evidence": [
+        "rdloop/B4/debate/proposal_v1.md:487-499, :595-598",
+        "SLS_setup/utils/rtc_augment.py:196"
+      ],
+      "required_change": "Optional: decode at 48 kHz and resample_poly to 16 kHz to mimic the ffmpeg path; keep the zero-loss check; destroy the encoder/decoder in finally."
+    }
+  ],
+  "resolved": [],
+  "still_open": [],
+  "per_lever": [
+    {
+      "lever_id": "apm_ns",
+      "stance": "modify",
+      "note": "Right hook and the strongest evidence (TFCL Mix), with a large offline-NS deficit (~15 clips vs offline bona without NS). Switch to an NS-only backend (pywebrtc-audio NoiseSuppressor) (O1.1) and add apm_balance (O1.5)."
+    },
+    {
+      "lever_id": "dtx_gate",
+      "stance": "modify",
+      "note": "Careful design (class telemetry, dtx_balance, reserve-safe name, spoof-miss guard). Only the readout needs same-source controls, paired counts, a non-speech stratification of the saturated core, and thresholds above within-run noise (O1.2)."
+    },
+    {
+      "lever_id": "opus_plc",
+      "stance": "modify",
+      "note": "Dependency-free, with well-tested draw-order equivalence and a bit-identical fallback, plus a pre-registered control. Fix the readout (O1.2), the G2 claim (O1.3) and the loss-range rationale (O1.4). Decoder parity (O1.9) is optional."
+    }
+  ],
+  "alternatives": [
+    {
+      "idea": "Use pywebrtc-audio's standalone NoiseSuppressor (NS only, levels 0-3 = 6/12/18/21 dB, py3.10-3.14 wheels) instead of webrtc-noise-gain, whose APM wrapper hard-wires the high-pass filter on.",
+      "why": "Keeps apm_ns a single component at no extra cost (O1.1).",
+      "idea_ids": [
+        "I1"
+      ]
+    },
+    {
+      "idea": "Stratify the saturated noisy-bona FA by the eval clip's non-speech fraction (webrtcvad on the local sim audio, read-only analysis) and predict that the dtx_gate drop concentrates in the high non-speech tertile.",
+      "why": "Gives a mechanism-specific readout for G3; the raw 136/133 count moves with any generic bona gain (O1.2).",
+      "idea_ids": [
+        "I2"
+      ]
+    },
+    {
+      "idea": "Decode the in-process libopus path at 48 kHz and resample to 16 kHz, mirroring ffmpeg's native-decoder + resample path.",
+      "why": "Shrinks the 'in-process vs ffmpeg decoder' second component before any control arm is needed (O1.9).",
+      "idea_ids": [
+        "I3"
+      ]
+    }
+  ],
+  "citation_checks": [
+    {
+      "url": "https://github.com/rhasspy/webrtc-noise-gain",
+      "ok": true,
+      "note": "API as claimed (AudioProcessor(auto_gain_dbfs 0-31, ns level 0-4), Process10ms -> .audio/.is_speech, 16 kHz int16). CHANGELOG 1.3.0: ABI3 wheels, so cp312 is covered."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/OHF-Voice/webrtc-noise-gain/master/src/webrtc_noise_gain_cpp.cpp",
+      "ok": false,
+      "note": "Contradicts 'NS alone': high_pass_filter.enabled = true is unconditional (O1.1). NS levels 1-3 -> kLow/kModerate/kHigh, else kVeryHigh."
+    },
+    {
+      "url": "https://github.com/strands-labs/pywebrtc-audio",
+      "ok": true,
+      "note": "Standalone NoiseSuppressor levels 0-3 (6/12/18/21 dB); HPF only as an AudioProcessor flag, default off; Python 3.10-3.14 wheels."
+    },
+    {
+      "url": "https://arxiv.org/html/2607.17761",
+      "ok": true,
+      "note": "WebRTC quote, Table 1 (0.23 -> 22.20) and Table 2 (clean-only 0.23/22.20, AFE-only 7.06/11.84, Mix 0.52/17.39) and the Mix quote all match. 'Trains and tests on the same chain' is the plan's inference: training noise MUSAN vs eval DNS."
+    },
+    {
+      "url": "https://arxiv.org/html/2309.11827",
+      "ok": true,
+      "note": "Quotes match; WebRTC VAD 10 ms; Table VI DF 22.95->22.14, 22.46->20.41, 16.92->16.06; LA mixed (helps SENet, hurts LCNN/AASIST)."
+    },
+    {
+      "url": "https://arxiv.org/abs/2106.12914",
+      "ok": true,
+      "note": "'EER increases from 3.6% (with silence) to 15.5% (trimmed silence).' verbatim."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.12423v2",
+      "ok": true,
+      "note": "PLR 0/1/5/10/20 %; the 5.30 / 2.33 / 0.003 quotes match; PLC method not named; in-distribution gain."
+    },
+    {
+      "url": "https://arxiv.org/html/2604.23742v1",
+      "ok": true,
+      "note": "Caption and \u00a75.4 quotes match. Training split includes Zoom/QQ online clips (O1.6)."
+    },
+    {
+      "url": "https://github.com/daanzu/py-webrtcvad-wheels",
+      "ok": true,
+      "note": "import webrtcvad; 3.12/3.13 builds since 2.0.12; frames 10/20/30 ms; mode 0-3."
+    }
+  ],
+  "verdict": "revise"
+}

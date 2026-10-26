@@ -1,0 +1,28 @@
+{
+  "description": "test eval profile: fake readouts / CI with the same file layout as sls_local17, plus a slow step for kill tests",
+  "readouts": {"merge": "{run}/local_eval/merge_top{k}", "final": "{run}/local_eval/epoch_{N}"},
+  "ci_files": {"merge": "{run}/local_eval/merge_top{k}/compare_ci_vs_{best_merge_label}.json",
+               "final": "{run}/local_eval/epoch_{N}/compare_ci_vs_{best_final_label}.json"},
+  "steps": [
+    {"name": "merge_eval", "gpu": true, "cwd": ".",
+     "cmd": ["{py}", "scripts/exploop/tests/fake_eval.py", "readout", "--src", "@SRC_MERGE@", "--out", "{run}/local_eval/merge_top{k}", "--label", "{label}", "--kind", "merge"],
+     "stdout": "{run}/local_eval/merge_top{k}.log",
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/metrics.json", "{run}/local_eval/merge_top{k}.log"]}},
+    {"name": "slow", "gpu": false, "cwd": ".", "cmd": ["{py}", "scripts/exploop/tests/fake_eval.py", "sleep", "@SLOW_S@"],
+     "stdout": "{run}/local_eval/slow.log", "done": {"exists": ["{run}/local_eval/slow.log"]}},
+    {"name": "final_eval", "gpu": true, "cwd": ".",
+     "cmd": ["{py}", "scripts/exploop/tests/fake_eval.py", "readout", "--src", "@SRC_FINAL@", "--out", "{run}/local_eval/epoch_{N}", "--label", "{label}", "--kind", "final"],
+     "stdout": "{run}/local_eval/epoch_{N}.log",
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/metrics.json"]}},
+    {"name": "ci_merge", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/exploop/tests/fake_eval.py", "ci", "--out", "{run}/local_eval/merge_top{k}/compare_ci.json", "--label", "{label}", "--kind", "merge"],
+     "stdout": "{run}/local_eval/merge_top{k}/ci_vs_{best_merge_label}.txt",
+     "copy": [["{run}/local_eval/merge_top{k}/compare_ci.json", "{run}/local_eval/merge_top{k}/compare_ci_vs_{best_merge_label}.json"]],
+     "done": {"exists": ["{run}/local_eval/merge_top{k}/ci_vs_{best_merge_label}.txt"]}},
+    {"name": "ci_final", "gpu": false, "cwd": ".",
+     "cmd": ["{py}", "scripts/exploop/tests/fake_eval.py", "ci", "--out", "{run}/local_eval/epoch_{N}/compare_ci.json", "--label", "{label}", "--kind", "final"],
+     "stdout": "{run}/local_eval/epoch_{N}/ci_vs_{best_final_label}.txt",
+     "copy": [["{run}/local_eval/epoch_{N}/compare_ci.json", "{run}/local_eval/epoch_{N}/compare_ci_vs_{best_final_label}.json"]],
+     "done": {"exists": ["{run}/local_eval/epoch_{N}/ci_vs_{best_final_label}.txt"]}}
+  ]
+}
