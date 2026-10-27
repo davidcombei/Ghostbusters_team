@@ -1,0 +1,306 @@
+{
+  "wave": "B4e",
+  "description": "B4e watch wave: one adopted iteration, B4a + b4wave lever tel_codec (--aug_tel_p 0.25 --aug_tel_codecs g723_1 amr_nb), launched by the owner with scripts/run_B4e.sh; baseline B4a (plan the-best-experiment-so-validated-cake.md). Telephony codecs G.711 / G.722 / G.726 are reserved for the local proxy sets and refused at start-up.",
+  "repo": "/root/repos/rtc-sdd/Ghostbusters_team",
+  "python": "/root/.conda/envs/rtc-sdd/bin/python",
+  "report_dir": "docs/experiments-exploration/b4-experiments",
+  "report_template": "docs/experiments-exploration/b3-experiments/20261010_143058_B3a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_cjs03_s1234.md",
+  "registry": "docs/experiment_log.csv",
+  "max_iterations": 1,
+  "letters": "e",
+  "track_prefix": "B4",
+  "trainer": {
+    "entry": [
+      "-m",
+      "b4wave.train"
+    ],
+    "cwd": "SLS_setup",
+    "exp_root": "SLS_setup/exp",
+    "launcher": "scripts/run_{prefix}{letter}.sh",
+    "flag_sources": [
+      "SLS_setup/b4wave/train.py"
+    ],
+    "preflight": [
+      "ffmpeg",
+      "pyloudnorm",
+      "av"
+    ],
+    "ffmpeg_install_cmd": "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg",
+    "smoke_args": [
+      "--train_subset_frac",
+      "0.02",
+      "--num_epochs",
+      "1",
+      "--keep_epochs",
+      "1",
+      "--out_path",
+      "./exp_smoke"
+    ]
+  },
+  "search_space": {
+    "allowed": [
+      "--aug_apm_ns_levels",
+      "--aug_apm_p",
+      "--aug_dtx_fill",
+      "--aug_dtx_p",
+      "--aug_opus_burst",
+      "--aug_opus_loss",
+      "--aug_opus_plc_p",
+      "--aug_tel_p",
+      "--aug_tel_codecs"
+    ],
+    "coupled": [
+      [
+        "--aug_apm_p",
+        "--aug_apm_ns_levels"
+      ],
+      [
+        "--aug_dtx_p",
+        "--aug_dtx_fill"
+      ],
+      [
+        "--aug_opus_plc_p",
+        "--aug_opus_loss",
+        "--aug_opus_burst"
+      ],
+      [
+        "--aug_tel_p",
+        "--aug_tel_codecs"
+      ]
+    ],
+    "forbidden": [
+      "--out_path",
+      "--train_subset_frac",
+      "--model_path",
+      "--resume",
+      "--label_smoothing",
+      "--aug_music_dirs",
+      "--freeze_ssl",
+      "--local_eval_names",
+      "--dev_data_path",
+      "--train_data_path",
+      "--pair_csv"
+    ],
+    "fixed": {
+      "--musan_dir": [
+        "../data/augmentation/musan"
+      ],
+      "--loudness_norm": [],
+      "--loudness_norm_lufs": [
+        "-23"
+      ],
+      "--dev_protocol": [
+        "../data/dev_noisy_sim/dev_label_excl_halfB.txt"
+      ],
+      "--local_eval_sets": [
+        "../configs/local_eval_sets.yaml"
+      ],
+      "--ssl_name": [
+        "Qwen/Qwen3-ASR-1.7B"
+      ],
+      "--n_layers": [
+        "24"
+      ]
+    },
+    "max_epochs": 10,
+    "keep_topk_by_wf1": 7,
+    "seed": 1234
+  },
+  "lever_queue": [
+    {
+      "id": "tel_codec",
+      "set": {
+        "--aug_tel_p": [
+          "0.25"
+        ],
+        "--aug_tel_codecs": [
+          "g723_1",
+          "amr_nb"
+        ]
+      },
+      "targets": "sim_heldout_v1 F1 (narrowband telephony codecs)",
+      "expect": [
+        "^B4 TEL codec: on p="
+      ],
+      "hypothesis": "B4a never sees narrowband CELP / ADPCM telephony audio, so it reads codec smoothing and the 4 kHz band edge on bona fide speech as synthesis. Training both classes through G.723.1 / AMR-NB on 25% of the codec calls makes those traces class-neutral, and that transfers to the unseen G.722 / G.726 / GSM implementations in sim_heldout_v1.",
+      "predicted_signature": "vs B4a, same readout: sim_heldout_v1 recall_bona up, driving heldout F1 up; sim_matched_v1 F1 down by at most 0.5 (Opus apps, now 25% fewer Opus clips); dev_online_clean F1 within 0.5; spoof recall within 0.5 on every set; probe sets steady. Caveat: sim_heldout_v1 also has the bandlimit / resample8k stages, so part of a heldout gain can be narrowband familiarity rather than codec transfer; Codabench decides.",
+      "falsifier": "heldout F1 delta < +0.5 on both readouts while matched F1 drops > 0.5 -> drop the lever.",
+      "sources": []
+    }
+  ],
+  "lever_notes": "tel_codec (B4e): codec-slot lever, exclusive with opus_plc; the parent's Opus draws are made either way and the lever draws from its own stream default_rng([seed, pid, 0xB4E]), so the acoustic stages and the WebRTC NS draws are B4a's. Only G.723.1 and AMR-NB are trained on.",
+  "smoke": "off",
+  "early_check": {
+    "minutes": 10,
+    "expect": [
+      "^b3wave: ",
+      "^Loudness norm: loudness_norm target=-23 LUFS",
+      "^Local eval: ",
+      "^Warmup-cosine: ",
+      "^b4wave: ",
+      "^B4 TEL codec selftest: PASS"
+    ],
+    "forbid": [
+      "Traceback \\(most recent call last\\)",
+      "out of memory",
+      "failed \\("
+    ]
+  },
+  "eval": {
+    "profile": "sls_local17",
+    "k": 5,
+    "ci": 2000,
+    "names": [
+      "dev_online_clean",
+      "sim_matched_v1",
+      "sim_heldout_v1",
+      "sim_echo_v1",
+      "probe_orig",
+      "probe_sil_only",
+      "probe_noise_only",
+      "probe_trimmed",
+      "probe_padded",
+      "probe_gain_up",
+      "probe_gain_down",
+      "probe_gain_m20",
+      "probe_gain_m6",
+      "probe_gain_p6",
+      "probe_gain_p10_limit",
+      "probe_agc_dynaudnorm",
+      "probe_loudnorm"
+    ],
+    "fixed_comparators": [
+      {
+        "label": "B2f-top5",
+        "dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/merge_top5"
+      },
+      {
+        "label": "B2f-ep8",
+        "dir": "SLS_setup/exp/B2f_qwen17_rtc_musan_loud23_cos8_lr2.5e6_s1234_epoch8_bs16_20261009132623/local_eval/epoch_8"
+      }
+    ]
+  },
+  "objective": {
+    "key": "half_B.wf1.wf1",
+    "clean_key": "half_B.wf1.f1_clean",
+    "higher_is_better": true
+  },
+  "rules": {
+    "new_best_delta": 0.0,
+    "band": 0.5,
+    "promote": {
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "positive": {
+      "delta_gt": 0.5,
+      "ci_low_gt": 0.0,
+      "clean_drop_le": 0.5
+    },
+    "keep_best": true
+  },
+  "gpu": {
+    "enabled": true,
+    "max_mem_mib": 1024,
+    "busy_regex": "main_train|b3wave\\.train|local_eval|main_eval|eval_checkpoints|b\\d+wave\\.(train|checks)",
+    "debounce_s": 600,
+    "debounce_eval_s": 30,
+    "poll_s": 60
+  },
+  "disk_gb": {
+    "train": 30,
+    "smoke": 10,
+    "eval": 5
+  },
+  "timeouts": {
+    "stall_min": 30,
+    "max_run_hours": 10,
+    "eval_step_h": 3,
+    "smoke_min": 45
+  },
+  "retries": {
+    "train_resume": 3,
+    "eval_step": 2,
+    "early_check": 2
+  },
+  "integrity": {
+    "protected": [
+      "SLS_setup/",
+      "scripts/",
+      "configs/",
+      ".claude/",
+      "docs/experiment_log.csv"
+    ]
+  },
+  "claude": {
+    "bin": "/root/.local/bin/claude",
+    "settings": "scripts/exploop/claude_settings.json",
+    "permission_mode": "auto",
+    "model": null,
+    "max_total_usd": 1000000,
+    "steps": {
+      "design": {
+        "agent": "exp-designer",
+        "usd": 10,
+        "timeout_min": 30,
+        "attempts": 3
+      },
+      "analyze": {
+        "agent": "exp-analyst",
+        "usd": 20,
+        "timeout_min": 60,
+        "attempts": 3
+      },
+      "summary": {
+        "agent": "exp-analyst",
+        "usd": 15,
+        "timeout_min": 45,
+        "attempts": 2
+      }
+    }
+  },
+  "start": {
+    "best": {
+      "label": "B4a",
+      "run_dir": "SLS_setup/exp/B4a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_s1234_epoch8_bs16_20261018150134",
+      "readouts": {
+        "merge": "SLS_setup/exp/B4a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_s1234_epoch8_bs16_20261018150134/local_eval/merge_top5",
+        "final": "SLS_setup/exp/B4a_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_s1234_epoch8_bs16_20261018150134/local_eval/epoch_8"
+      },
+      "registry_ids": {
+        "merge": "B4a-apmns-screen",
+        "final": "B4a-apmns-ep8"
+      },
+      "argv_from": "config"
+    },
+    "adopt": [
+      {
+        "letter": "e",
+        "run_dir": "SLS_setup/exp/B4e_qwen17_rtc_musan_loud23_cos8_lr2.5e6_apmns03_tel25_s1234_epoch8_bs16_20261026204847",
+        "lever_slug": "tel25",
+        "launcher": "scripts/run_B4e.sh",
+        "change": {
+          "set": {
+            "--aug_tel_p": [
+              "0.25"
+            ],
+            "--aug_tel_codecs": [
+              "g723_1",
+              "amr_nb"
+            ]
+          }
+        },
+        "change_vs_ref": "+ --aug_tel_p 0.25 --aug_tel_codecs g723_1 amr_nb (telephony codecs on 25% of the codec calls)",
+        "rationale": "the telephony augmentation from origin/feature/model-updates, restricted to the unreserved codecs",
+        "hypothesis": "B4a never sees narrowband CELP / ADPCM telephony audio, so it reads codec smoothing and the 4 kHz band edge on bona fide speech as synthesis. Training both classes through G.723.1 / AMR-NB on 25% of the codec calls makes those traces class-neutral, and that transfers to the unseen G.722 / G.726 / GSM implementations in sim_heldout_v1.",
+        "predicted_signature": "vs B4a, same readout: sim_heldout_v1 recall_bona up, driving heldout F1 up; sim_matched_v1 F1 down by at most 0.5 (Opus apps, now 25% fewer Opus clips); dev_online_clean F1 within 0.5; spoof recall within 0.5 on every set; probe sets steady. Caveat: sim_heldout_v1 also has the bandlimit / resample8k stages, so part of a heldout gain can be narrowband familiarity rather than codec transfer; Codabench decides.",
+        "falsifier": "heldout F1 delta < +0.5 on both readouts while matched F1 drops > 0.5 -> drop the lever.",
+        "eval_note": "pre-registered: top-5 merge half_B WF1 vs B4a merge, paired bootstrap 2000; positive = delta > +0.5 with CI low > 0 and clean F1 drop <= 0.5; within +-0.5 null; below -0.5 negative.",
+        "expect": [
+          "^B4 TEL codec: on p="
+        ],
+        "expected_hours": 4.3
+      }
+    ]
+  }
+}
